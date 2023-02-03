@@ -22,12 +22,7 @@
 (defgroup codeium nil
 	"codeium.el customization -some-doc-str-here-"
 	:group 'convenience)
-(defcustom codeium-executable-loc (expand-file-name "codeium/codeium_language_server" user-emacs-directory)
-	"path of your codeium executable"
-	:type 'string)
-(defcustom codeium-log-waiting-text (propertize "waiting for response" 'face '(:weight ultra-bold))
-	"text to indict an unfilled request in *codeium-log*"
-	:type 'string)
+(defvar codeium-log-waiting-text (propertize "waiting for response" 'face '(:weight ultra-bold)))
 
 (defvar codeium-fullpath-alist nil)
 
@@ -70,8 +65,14 @@
 			 ;; (setq ,name ,value)
 			 )))
 
-(codeium-def codeium-api-enabled (api) t)
 
+(codeium-def codeium-executable-loc (expand-file-name "codeium/codeium_language_server" user-emacs-directory)
+	"path of your codeium executable")
+
+(defconst codeium-apis
+	'(GetCompletions Heartbeat CancelRequest GetAuthToken RegisterUser auth-redirect))
+
+(codeium-def codeium-api-enabled (api) t)
 
 (defvar codeium-fields-regexps
 	`(
@@ -80,7 +81,7 @@
 		 (Heartbeat .
 			 ,(rx bol "codeium/metadata/" (* anychar) eol))
 		 (CancelRequest .
-			 ,(rx bol "codeium/metadata/" (* anychar) eol))
+			 ,(rx bol "codeium/" (or (seq "metadata/" (* anychar)) "request_id")  eol))
 		 (GetAuthToken)
 		 (RegisterUser .
 			 ,(rx bol "codeium/firebase_id_token" eol))
@@ -108,9 +109,24 @@
 (codeium-def codeium/metadata/ide_name "emacs")
 (codeium-def codeium/metadata/extension_version "1.1.32")
 (codeium-def codeium/metadata/ide_version (emacs-version))
+;; (codeium-def codeium/metadata/request_id (api)
+;; 	(when (eq api 'GetCompletions)
+;; 		(random most-positive-fixnum)))
+
+(defvar global_requestid_counter 0)
+(codeium-def codeium/metadata/request_id (api state)
+	(when (eq api 'GetCompletions)
+		(cl-incf global_requestid_counter)))
+;; ;; (when (eq api 'GetCompletions)
+;; ;; 	(setf (get state 'last-request-id) (or (get state 'last-request-id) 1))
+;; ;; 	(get state 'last-request-id))))
+
+;; for CancelRequest
+(codeium-def codeium/request_id (api state val) val)
 
 ;; alternative getting key from file?
 ;; TODO
+;; (setq codeium/metadata/api_key 'codeium-default/metadata/api_key)
 (defun codeium-get-saved-api-key ())
 (codeium-def codeium/metadata/api_key (api state)
 	(if-let ((api-key (or (codeium-state-last-api-key state) (codeium-get-saved-api-key))))
@@ -120,6 +136,13 @@
 				(when-let ((api-key (codeium-state-last-api-key state)))
 					(setq codeium/metadata/api_key api-key))))
 		nil))
+
+
+(codeium-def codeium/document/text ()
+	(buffer-string))
+(codeium-def codeium/document/cursor_offset ()
+	(codeium-utf8-byte-length (buffer-substring-no-properties (point-min) (point))))
+
 (codeium-def codeium/document/editor_language () (symbol-name major-mode))
 
 (defvar codeium-language-alist
@@ -135,7 +158,6 @@
 			(setq mode (get mode 'derived-mode-parent)))
 		(alist-get mode codeium-language-alist)))
 
-
 (codeium-def codeium/document/line_ending "\n"
 	"according to https://www.reddit.com/r/emacs/comments/5b7o9r/elisp_how_to_concat_newline_into_string_regarding/
 	this can be always \\n")
@@ -145,7 +167,8 @@
 (codeium-def codeium/editor_options/insert_spaces ()
 	(if indent-tabs-mode :false t))
 
-(codeium-def codeium/firebase_id_token (api state val) val)
+(codeium-def codeium/firebase_id_token (api state) (codeium-state-last-auth-token state))
+
 
 (cl-defstruct
 	(codeium-state
@@ -172,19 +195,20 @@
 
 (defvar codeium-state (codeium-state-make :name "default"))
 
-(defun codeium-state-set-config (state field value)
-	(if (alist-get field codeium-fullpath-alist)
-		(setf (alist-get field (codeium-state-config state)) value)
-		(error "%s is not a defined codeium config" field)
-		)
-	)
+;; (defun codeium-state-set-config (state field value)
+;; 	(if (alist-get field csodeium-fullpath-alist)
+;; 		(setf (alist-get field (codeium-state-config state)) value)
+;; 		(error "%s is not a defined codeium config" field)
+;; 		)
+;; 	)
+
 
 (defun codeium-get-config (field api state &optional given-val)
 	(let*
 		((val
-			 (if (alist-get field (codeium-state-config state))
-				 (alist-get field (codeium-state-config state))
-				 (symbol-value field))))
+			 (if (eq (alist-get field (codeium-state-config state) 'noexist) 'noexist)
+				 (symbol-value field)
+				 (alist-get field (codeium-state-config state)))))
 		(if (functionp val)
 			(cl-case (cdr (func-arity val))
 				(0 (funcall val))
@@ -193,33 +217,88 @@
 				(t (funcall val api state given-val)))
 			val)))
 
-
-(defun codeium-alist-get-multi (alist top &rest rest)
+(defun codeium-nested-alist-get-multi (body top &rest rest)
 	(if rest
-		(apply #'codeium-alist-get-multi (alist-get top alist) rest)
-		(alist-get top alist)))
-(defun codeium-alist-set-multi (alist val top &rest rest)
-	(let ((cur-alist alist))
+		(apply #'codeium-nested-alist-get-multi (alist-get top body) rest)
+		(alist-get top body)))
+(defun codeium-nested-alist-set-multi (body val top &rest rest)
+	(let ((cur-alist body))
 		(setf (alist-get top cur-alist)
 			(if rest
-				(apply #'codeium-alist-set-multi (alist-get top cur-alist) val rest)
+				(apply #'codeium-nested-alist-set-multi (alist-get top cur-alist) val rest)
 				val))
 		cur-alist))
+(defun codeium-nested-alist-get (body field) 
+	(let ((fullpath (alist-get field codeium-fullpath-alist)))
+		(unless fullpath (error "field %s is set to path %s which is not valid" field fullpath))
+		(apply #'codeium-nested-alist-get-multi body fullpath)))
+(defun codeium--nested-alist-set (body field val) 
+	(let ((fullpath (alist-get field codeium-fullpath-alist)))
+		(unless fullpath (error "field %s is set to path %s which is not valid" field fullpath))
+		(apply #'codeium-nested-alist-set-multi body val fullpath)))
+(gv-define-expander codeium-nested-alist-get
+	(lambda (do body field)
+		(gv-letplace (getter setter) body
+			(macroexp-let2 nil field field
+				(funcall do `(codeium-nested-alist-get ,getter ,field)
+					(lambda (v)
+						(macroexp-let2 nil v v
+							`(progn
+								 ,(funcall setter`(codeium--nested-alist-set ,getter ,field ,v))
+								 ,v))))))))
 
-(defun codeium-setup-request-body-for-api (body api state)
-	(let ((ans body) tmp fullpath)
+
+(defun codeium-compute-configs (api state vals-alist)
+	(let (ans)
 		(mapc
 			(lambda (field)
-				(setq fullpath (alist-get field codeium-fullpath-alist))
-				(unless fullpath (error "field %s is set to path %s which is not valid" field fullpath))
-				(setq tmp (apply #'codeium-alist-get-multi ans fullpath))
-				(setq tmp (codeium-get-config field api state tmp))
-				(unless (eq tmp 'codeium-ignore)
-					(setq ans (apply #'codeium-alist-set-multi ans tmp fullpath))))
+				(setf (alist-get field ans) (codeium-get-config field api state (alist-get field vals-alist))))
 			(codeium-get-config 'codeium-api-fields api state))
 		ans))
 
+(defun codeium-diagnose (&optional state)
+	(interactive)
+	(setq state (or state codeium-state))
+	(with-output-to-temp-buffer "*codeium-diagnose*"
+		(mapcar
+			(lambda (api)
+				(when (codeium-get-config 'codeium-api-enabled api codeium-state)
+					(with-current-buffer standard-output
+						(insert (propertize (symbol-name api) 'face '(:weight ultra-bold))))
+					(terpri)
+					(princ (url-recreate-url (codeium-get-config 'codeium-url api codeium-state)))
+					(terpri)
+					(mapcar
+						(lambda (item)
+							;; help-insert-xref-button
+							(with-current-buffer standard-output
+								(help-insert-xref-button (symbol-name (car item)) 'help-variable-def (car item))
+								(insert (propertize "\t" 'display '(space :align-to 40))))
+							(string-fill " " 5)
+							(let*
+								(
+									(print-escape-newlines t) (print-length 100)
+									(obj (cdr item))
+									(obj (if (stringp obj)
+											 (substring-no-properties obj 0 (length obj)) obj)))
+								(cl-prin1 obj))
+							(princ "\n"))
+						(codeium-compute-configs api codeium-state nil))
+					(princ "\n")))
+			codeium-apis)
+		(with-current-buffer standard-output
+			(setq help-xref-stack-item (list #'codeium-diagnose codeium-state)))))
 
+
+(defun codeium-make-body-for-api (api state vals-alist)
+	(let (body tmp)
+		(mapc
+			(lambda (field)
+				(setq tmp (codeium-get-config field api state (alist-get field vals-alist)))
+				(when tmp
+					(setf (codeium-nested-alist-get body field) tmp)))
+			(codeium-get-config 'codeium-api-fields api state))
+		body))
 
 (defun codeium-get-or-make-process-buffer (state)
 	(let ((buf (codeium-state-buf state)))
@@ -258,7 +337,7 @@
 					:connection-type 'pipe
 					:buffer buf
 					:coding 'no-conversion
-					:command `(,codeium-executable-loc
+					:command `(,(codeium-get-config 'codeium-executable-loc nil state)
 								  "--api_server_host" "server.codeium.com"
 								  "--api_server_port" "443" 
 								  ,@(when fixed-port `("--server_port" ,(number-to-string fixed-port)))
@@ -324,13 +403,12 @@
 			(status (or (if url-http-response-status url-http-response-status status) "no status available")))
 		(with-current-buffer log-buf
 			(save-excursion
-				(let ((inhibit-read-only t))
+				(let ((inhibit-read-only t) (print-escape-newlines t))
 					(goto-char log-marker)
-					;; (delete-backward-char (1+ (length codeium-log-waiting-text)))
 					(delete-char (- (1+ (length codeium-log-waiting-text))))
 					(insert
 						(format " status: %s %.2f secs"
-							(pp-to-string status)
+							(prin1-to-string status)
 							(float-time (time-subtract (current-time) request-time))))
 					(set-marker log-marker (point))))))
 	(funcall callback
@@ -354,39 +432,40 @@
 						)
 					(with-current-buffer log-buf
 						(save-excursion
-							(let ((inhibit-read-only t))
+							(let ((inhibit-read-only t) (print-escape-newlines t))
 								(goto-char log-marker)
 								(insert
-									(format "\n%s"
-										(pp-to-string message)))))))
+									(concat " " (prin1-to-string message)))))))
 				parsed)
 			'error)))
 
+(defun codeium-request-with-body (state api body callback)
+	(if (codeium-state-port state)
+		(let*
+			(
+				(url (codeium-get-config 'codeium-url api state))
+				(url-request-method "POST")
+				(url-request-extra-headers `(("Content-Type" . "application/json")))
+				(url-request-data (encode-coding-string (json-serialize body) 'utf-8))
+				log-marker)
+			(with-current-buffer (codeium-get-or-make-process-buffer state)
+				(let ((inhibit-read-only t))
+					(save-excursion
+						(goto-char (point-max))
+						(beginning-of-line)
+						(insert-before-markers
+							(format "[%s %s]\n" (url-recreate-url url) codeium-log-waiting-text))
+						(setq log-marker (set-marker (make-marker) (- (point) 2)))
+						)))
+			(let ((url-buf (url-retrieve url 'codeium-request-callback (list callback (current-time) log-marker) 'silent 'inhibit-cookies)))
+				(set-process-query-on-exit-flag (get-buffer-process url-buf) nil)))
+		(codeium-on-port-ready state (lambda () (codeium-request-with-body state api body callback)))))
 
-;; returns the body as returned by codeium-setup-request-body-for-api, or nil if not api-enabled
-(defun codeium-request (state api body callback)
+;; returns the body as returned by codeium-make-body-for-api, or nil if not codeium-api-enabled
+(defun codeium-request (state api vals-alist callback)
 	(when (codeium-get-config 'codeium-api-enabled api state)
-		(setq body (codeium-setup-request-body-for-api body api state))
-		(if (codeium-state-port state)
-			(let*
-				(
-					(url (codeium-get-config 'codeium-url api state))
-					(url-request-method "POST")
-					(url-request-extra-headers `(("Content-Type" . "application/json")))
-					(url-request-data (encode-coding-string (json-serialize body) 'utf-8))
-					log-marker)
-				(with-current-buffer (codeium-get-or-make-process-buffer state)
-					(let ((inhibit-read-only t))
-						(save-excursion
-							(goto-char (point-max))
-							(beginning-of-line)
-							(insert-before-markers
-								(format "[%s %s]\n" (url-recreate-url url) codeium-log-waiting-text))
-							(setq log-marker (set-marker (make-marker) (- (point) 2)))
-							)))
-				(let ((url-buf (url-retrieve url 'codeium-request-callback (list callback (current-time) log-marker) 'silent 'inhibit-cookies)))
-					(set-process-query-on-exit-flag (get-buffer-process url-buf) nil)))
-			(codeium-on-port-ready state (lambda () (codeium-request state api body callback))))
+		(setq body (codeium-make-body-for-api api state vals-alist))
+		(codeium-request-with-body state api body callback)
 		body))
 
 (defun codeium-background-process-next (state)
@@ -394,12 +473,12 @@
 	;; so we safely removes it
 	(setf (codeium-state-background-process-cancel-fn state) nil)
 	(codeium-background-process-start state))
-(defun codeium-background-process-request (state api body callback)
+(defun codeium-background-process-request (state api vals-alist callback)
 	;; when the request is completed, we check if there has been any call to cancel earlier
 	(let ((tracker (make-symbol "cancel-distinct-tracker")))
 		(fset tracker #'ignore)
 		(setf (codeium-state-background-process-cancel-fn state) tracker)
-		(codeium-request state api body
+		(codeium-request state api vals-alist
 			(lambda (res)
 				(when (eq (codeium-state-background-process-cancel-fn state) tracker)
 					(funcall callback res))))))
@@ -434,9 +513,11 @@
 								 (codeium-background-process-next state)))))
 					(setf (codeium-state-background-process-cancel-fn state) (lambda () (cancel-timer timer))))
 				(error "abcd")))
+
 		((and
-			 (not (codeium-get-config 'codeium/metadata/api_key 'GetCompletions state))
-			 (not (codeium-state-last-auth-token state)))
+			 (not (codeium-state-last-auth-token state))
+			 (not (codeium-state-last-api-key state))
+			 (not (codeium-get-config 'codeium/metadata/api_key 'GetCompletions state)))
 			(let ((authurl (codeium-make-auth-url state)))
 				(when (y-or-n-p (format "no codeium api-key found; visit %s to log in?" authurl))
 					(browse-url authurl))
@@ -445,19 +526,22 @@
 				(lambda (res)
 					(if-let ((_ (listp res)) (token (alist-get 'authToken res)))
 						(setf (codeium-state-last-auth-token state) token)
-						(message "cannot get auth_token from res"))
+						(error "cannot get auth_token from res"))
 					(codeium-background-process-next state))))
-		((not (codeium-get-config 'codeium/metadata/api_key 'GetCompletions state))
-			(codeium-background-process-request state 'RegisterUser
-				`((firebase_id_token . ,(codeium-state-last-auth-token state)))
+
+		((and
+			 (not (codeium-state-last-api-key state))
+			 (not (codeium-get-config 'codeium/metadata/api_key 'GetCompletions state)))
+			(codeium-background-process-request state 'RegisterUser nil
 				(lambda (res)
 					(if-let ((_ (listp res)) (key (alist-get 'api_key res)))
 						(progn
 							(when (y-or-n-p "save codeium/metadata/api_key using customize?")
 								(customize-save-variable 'codeium/metadata/api_key key))
 							(setf (codeium-state-last-api-key state) key))
-						(message "cannot get api_key from res"))
+						(error "cannot get api_key from res"))
 					(codeium-background-process-next state))))
+
 		(t
 			(codeium-background-process-request state 'Heartbeat nil
 				(lambda (res)
@@ -485,47 +569,39 @@
 		(funcall callback)
 		(push callback (codeium-state-port-ready-callback-list state))))
 
-;; returns (requestid_internal . requestid_as_sent)
-(defun codeium-request-getcompletions (state body)
+;; returns (requestid . body_sent)
+(defun codeium-request-getcompletions (state)
 	(let ((requestid (cl-incf (codeium-state-last-request-id state))))
-		(setf (alist-get 'request_id (alist-get 'metadata body)) requestid)
 		(puthash requestid t (codeium-state-pending-table state))
-		(setq body
-			(codeium-request state 'GetCompletions body
+		(cons requestid
+			(codeium-request state 'GetCompletions nil
 				(lambda (res)
 					(when (gethash requestid (codeium-state-pending-table state))
 						(remhash requestid (codeium-state-pending-table state))
-						(puthash requestid res (codeium-state-results-table state))))))
-		(cons
-			requestid
-			(alist-get 'request_id (alist-get 'metadata body)))))
+						(puthash requestid res (codeium-state-results-table state))))))))
+
 (defun codeium-request-cancelrequest (state requestid)
 	(codeium-request state 'CancelRequest
-		`((request_id . ,requestid))
+		`((codeium/request_id . ,requestid))
 		#'ignore))
 
-(defun codeium-request-getcompletions-no-block (state body)
+;; returns (reqbody . res) or nil
+(defun codeium-request-getcompletions-no-block (state)
 	(unless (input-pending-p)
 		(let*
 			(
-				(tmp (codeium-request-getcompletions state body))
-				(requestid_internal (car tmp))
-				(requestid_as_sent (cdr tmp))
+				(tmp (codeium-request-getcompletions state))
+				(requestid (car tmp))
+				(reqbody (cdr tmp))
 				(rst 'noexist))
 			(while (and (eq rst 'noexist) (not (input-pending-p)))
 				(sit-for 0.01)
-				(setq rst (gethash requestid_internal (codeium-state-results-table state) 'noexist)))
+				(setq rst (gethash requestid (codeium-state-results-table state) 'noexist)))
 			(if (eq rst 'noexist)
-				(codeium-request-cancelrequest state requestid_as_sent)
-				(remhash requestid_internal (codeium-state-results-table state)))
-			(if (or (eq rst 'error) (eq rst 'noexist)) nil rst))))
-
-(defun codeium-request-getcompletions-no-block-document (state document offset)
-	(let (body)
-		(setf (alist-get 'text (alist-get 'document body)) document)
-		(setf (alist-get 'cursor_offset (alist-get 'document body))
-			(codeium-utf8-byte-length (substring-no-properties document 0 offset)))
-		(codeium-request-getcompletions-no-block state body)))
+				(codeium-request-cancelrequest state
+					(codeium-nested-alist-get reqbody 'codeium/metadata/request_id))
+				(remhash requestid (codeium-state-results-table state)))
+			(if (or (eq rst 'error) (eq rst 'noexist)) nil (cons reqbody rst)))))
 
 (defun codeium-utf8-byte-length (str)
 	(length (encode-coding-string str 'utf-8)))
@@ -580,7 +656,7 @@
 
 (defun codeium-string-to-number-safe (str)
 	(if (stringp str) (string-to-number str) str))
-(defun codeium-parse-getcompletions-res-process-offsets (document res)
+(defun codeium-parse-getcompletions-res-process-offsets (document cursor res)
 	(let*
 		(
 			(items (alist-get 'completionItems res))
@@ -597,7 +673,7 @@
 										(lambda (part) (alist-get 'offset part))
 										(alist-get 'completionParts item))))
 							items))))
-			(offsets-table (codeium-make-utf8-offset-table document offsets-full-list))
+			(offsets-table (codeium-make-utf8-offset-table document (push cursor offsets-full-list)))
 			(_
 				(codeium-mapcar-mutate
 					(lambda (item)
@@ -613,7 +689,7 @@
 		offsets-table))
 
 ;; WARNING: this mutates res
-(defun codeium-parse-getcompletions-res (document cursor res)
+(defun codeium-parse-getcompletions-res (req res)
 	;; (mapcar 'car res)
 	;; (state completionItems requestInfo)
 	;; (alist-get 'state res)
@@ -633,8 +709,11 @@
 	(when (alist-get 'completionItems res)
 		(let*
 			(
+				(document (codeium-nested-alist-get req 'codeium/document/text))
+				(cursor (codeium-nested-alist-get req 'codeium/document/cursor_offset))
 				(items (alist-get 'completionItems res))
-				(offset-hashtable (codeium-parse-getcompletions-res-process-offsets document res))
+				(offset-hashtable (codeium-parse-getcompletions-res-process-offsets document cursor res))
+				(cursor (gethash cursor offset-hashtable))
 				offset-list
 				(_
 					(maphash (lambda (_ offset) (if offset (push offset offset-list))) offset-hashtable))
@@ -649,39 +728,54 @@
 			;; (print (alist-get 'completion (elt items 0)))
 			;; ;; (print (alist-get 'range (elt items 0)))
 			;; ;; (print (alist-get 'source (elt items 0)))
-			;; (print (nth 0 strings-list))
+			;; (print (list (- range-min cursor) (- range-max cursor) (nth 0 strings-list)))
 			;; (print (list range-min cursor range-max))
-			(list range-min range-max strings-list))))
+			(list (- range-min cursor) (- range-max cursor) strings-list))))
 
 ;;;###autoload
-(defun codeium-init ()
+(defun codeium-init (&optional state)
 	(interactive)
-	(codeium-background-process-start codeium-state))
+	(setq state (or state codeium-state))
+	(codeium-background-process-start state))
 
-(defun codeium-reset ()
+(defun codeium-reset (&optional state)
 	(interactive)
+	(setq state (or state codeium-state))
 	(codeium-reset-state codeium-state))
 
 ;;;###autoload
-(defun codeium-completion-at-point ()
-	(condition-case err
-		(when-let*
-			(
-				(document (buffer-string))
-				(pointmin (point-min))
-				(cursor (- (point) pointmin))
-				(res (codeium-request-getcompletions-no-block-document codeium-state document cursor))
-				(rst (codeium-parse-getcompletions-res document cursor res)))
-			(cl-destructuring-bind (rmin rmax table) rst
-				(list (+ rmin pointmin) (+ rmax pointmin) table)))
-		(error
-			(message "an error occured in codeium-completion-at-point: %s" (error-message-string err))
-			nil)))
-
+(defun codeium-completion-at-point (&optional state)
+	(setq state (or state codeium-state))
+	;; (condition-case err
+	(when-let*
+		(
+			(buffer-prev-str (buffer-string))
+			(prev-point-offset (- (point) (point-min)))
+			(tmp (codeium-request-getcompletions-no-block state))
+			(req (car tmp))
+			(res (cdr tmp))
+			(rst (codeium-parse-getcompletions-res req res)))
+		(cl-destructuring-bind (dmin dmax table) rst
+			(when-let*
+				(
+					(rmin (+ dmin (point)))
+					(rmax (+ dmax (point)))
+					(pmin (+ dmin prev-point-offset))
+					(pmax (+ dmax prev-point-offset))
+					(_ (<= (point-min) rmin))
+					(_ (<= rmax (point-max)))
+					(_ (<= 0 pmin))
+					(_ (<= pmax (length buffer-prev-str)))
+					(_ (string=
+						   (buffer-substring-no-properties rmin rmax)
+						   (substring-no-properties buffer-prev-str pmin pmax))))
+				(list rmin rmax table))))
+	;; (error
+	;; 	(message "an error occured in codeium-completion-at-point: %s" (error-message-string err))
+	;; 	nil)
+	;; )
+	)
 
 (provide 'codeium)
 ;;; codeium.el ends here
-
-
-
 
