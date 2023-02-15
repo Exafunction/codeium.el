@@ -14,12 +14,14 @@
 ;; takes 1, 2, or 3 arguments, which are (api state val)
 ;; api is a symbol such as 'GetCompletions, state is of type `codeium-state'
 ;; which keeps all the state (including a process, port, and some hash tables)
-;; val is only relavant if the field is only sensible given a previous
+;; val is only relevant if the field is only sensible given a previous
 ;; value, such as `codeium/request_id' used in `'CancelRequest'
 
 ;; use M-x `customize' see a full list of settings.
 
 ;;; Code:
+
+(setf version "1.1.38")
 
 (require 'url-parse) ; for url-parse-make-urlobj
 ;; removing this gives comp warnings, not sure why since its defined in url-http?
@@ -408,6 +410,28 @@
 			(when (string= str "finished\n")
 				(codeium-defer-until-no-input callback)))))
 
+(defun get-operating-system-architecture ()
+  (let ((os (string-trim (shell-command-to-string "uname -s")))
+        (arch (string-trim (shell-command-to-string "uname -m"))))
+    (list os arch)))
+
+(defun get-language-server-string ()
+  (let* ((os-arch (get-operating-system-architecture))
+        (is-arm (or (string-match-p "arm" (cadr os-arch))
+                    (string-match-p "aarch64" (cadr os-arch)))))
+    (cond
+     ((and (string= (car os-arch) "Linux") is-arm)
+      "language_server_linux_arm")
+     ((and (string= (car os-arch) "Linux") (string= (cadr os-arch) "x86_64"))
+      "language_server_linux_x64")
+     ((and (string= (car os-arch) "Darwin") (string= (cadr os-arch) "x86_64"))
+      "language_server_macos_x64")
+     ((and (string= (car os-arch) "Darwin") is-arm)
+      "language_server_macos_arm")
+     ((string= (car os-arch) "Windows")
+      "language_server_windows_x64.exe")
+		 (t (car os-arch)))))
+
 ;;;###autoload
 (defun codeium-install (&optional callback state noconfirm)
 	(interactive)
@@ -415,7 +439,8 @@
 	(let*
 		(
 			(filename (car (codeium-get-config 'codeium-command nil state)))
-			(url "https://github.com/Exafunction/codeium/releases/download/language-server-v1.1.35/language_server_linux_x64.gz"))
+			(language-server-string (get-language-server-string))
+			(url (concat "https://github.com/Exafunction/codeium/releases/download/language-server-v" version "/" language-server-string ".gz")))
 		(when (file-exists-p filename)
 			(unless (yes-or-no-p (format "%s alreay exist; overwrite? " filename)) (error "aborted")))
 		(unless
