@@ -28,7 +28,7 @@
 ;; add `codeium-completion-at-point' to your `completion-at-point-functions'
 ;; use `codeium-diagnose' to see currently enabled apis and fields
 
-;; anythinng defined by `codeium-def' a constant or a function that
+;; anything defined by `codeium-def' a constant or a function that
 ;; takes 1, 2, or 3 arguments, which are (api state val)
 ;; api is a symbol such as 'GetCompletions, state is of type `codeium-state'
 ;; which keeps all the state (including a process, port, and some hash tables)
@@ -130,7 +130,7 @@
 (codeium-def codeium-local-server-version codeium-latest-local-server-version)
 
 (codeium-def codeium-download-url
-	(condition-case err;; dont signal error on loading
+	(condition-case err;; don't signal error on loading
 		(concat "https://github.com/Exafunction/codeium/releases/download/language-server-v"
 			codeium-local-server-version "/" (codeium-get-language-server-string) ".gz")
 		(error
@@ -541,7 +541,7 @@ If you set `codeium-port', it will be used instead and no process will be create
 		(set-buffer-multibyte nil)
 		(url-insert-buffer-contents url-buf url)
 		(unless (zlib-decompress-region (point-min) (point-max))
-			(user-error "zlib is unabled to decompress")))
+			(user-error "zlib is unable to decompress")))
 	(chmod filename #o744)
 	(kill-buffer url-buf)
 	(message "successfully installed codeium local language server")

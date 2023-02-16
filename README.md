@@ -22,7 +22,7 @@ Check out our [playground](https://www.codeium.com/playground) if you want to qu
 
 codeium.el provides a `completion-at-point-functions` backend. It is designed to be use with a front-end, such as [company-mode](https://company-mode.github.io/), [corfu](https://github.com/minad/corfu), or the built-in `completion-at-point`.
 
-codeium.el is an open source client and (mostly) written by [me](https://github.com/Alan-Chen99). It uses a proprietary codeium binary, currently downloaded (automatically, with confirmation) from [here](https://github.com/Exafunction/codeium/releases/). Use `M-x codeium-diagnose` to see apis/fields that would be sent to the local language server, and the command used to run the local langauge server. Customize `codeium-api-enabled`, `codeium-fields-regexps` and `codeium-command` to change them.
+codeium.el is an open source client and (mostly) written by [me](https://github.com/Alan-Chen99). It uses a proprietary codeium binary, currently downloaded (automatically, with confirmation) from [here](https://github.com/Exafunction/codeium/releases/). Use `M-x codeium-diagnose` to see apis/fields that would be sent to the local language server, and the command used to run the local language server. Customize `codeium-api-enabled`, `codeium-fields-regexps` and `codeium-command` to change them.
 
 Contributions are welcome! Feel free to submit pull requests and issues related to the package.
 
@@ -50,7 +50,7 @@ choice, or manually. See [Installation Options](#-installation-options) below.
 ## 🛠️ Configuration
 
 You can see all customization options via `M-x customize`.
-(better documentation comming soon!)
+(better documentation coming soon!)
 
 Here is an example configuration:
 ```elisp
@@ -77,7 +77,7 @@ Here is an example configuration:
 
     ;; codeium-completion-at-point is autoloaded, but you can
     ;; optionally set a timer, which might speed up things as the
-    ;; codeium local langauge server takes ~0.2s to start up
+    ;; codeium local language server takes ~0.2s to start up
     ;; (add-hook 'emacs-startup-hook
     ;;  (lambda () (run-with-timer 0.1 nil #'codeium-init)))
 
@@ -85,7 +85,7 @@ Here is an example configuration:
     :config
     (setq use-dialog-box nil) ;; do not use popup boxes
 
-    ;; if you dont want to use customize to save the api-key
+    ;; if you don't want to use customize to save the api-key
     ;; (setq codeium/metadata/api_key "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")
 
     ;; get codeium status in the modeline
@@ -136,12 +136,12 @@ Here is an example configuration for company-mode.
         ))
 ```
 
-You can also access codeium.el from elisp; here is a snipet that returns
+You can also access codeium.el from elisp; here is a snippet that returns
 the full response of a `GetCompletions` request:
 ```elisp
 (cl-letf*
     (
-        ;; making a new codeium-state (thus a new local langauge server process)
+        ;; making a new codeium-state (thus a new local language server process)
         ;; takes ~0.2 seconds; avoid when possible
         (state (codeium-state-make :name "example"))
         ((codeium-config 'codeium/document/text state) "def fibi(n):")
