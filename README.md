@@ -21,7 +21,7 @@ Codeium autocompletes your code with AI in all major IDEs. We [launched](https:/
 
 codeium.el provides a `completion-at-point-functions` backend. It is designed to be use with a front-end, such as [company-mode](https://company-mode.github.io/), [corfu](https://github.com/minad/corfu), or the built-in `completion-at-point`.
 
-codeium.el is an open source client and (mostly) written by [me](https://github.com/Alan-Chen99). It uses a proprietary codeium binary, currently downloaded (automatically, with confirmation) from [here](https://github.com/Exafunction/codeium/releases/). Use `M-x codeium-diagnose` to see apis/fields that would be sent to the local language server, and the command used to run the local language server. Customize `codeium-api-enabled`, `codeium-fields-regexps` and `codeium-command` to change them.
+codeium.el is an open source client and (mostly) written by [Alan Chen](https://github.com/Alan-Chen99). It uses a proprietary language server binary, currently downloaded (automatically, with confirmation) from [here](https://github.com/Exafunction/codeium/releases/). Use `M-x codeium-diagnose` to see apis/fields that would be sent to the local language server, and the command used to run the local language server. Customize `codeium-api-enabled`, `codeium-fields-regexps` and `codeium-command` to change them.
 
 Contributions are welcome! Feel free to submit pull requests and issues related to the package.
 
@@ -178,3 +178,5 @@ Add the following to your `~/.emacs.d/init.el` file.
 ```elisp
 (add-to-list 'load-path "~/.emacs.d/codeium.el")
 ```
+
+*Do you have a working installation for another Emacs environment (Spacemacs, Doom Emacs)? Submit a PR so we can share it with others!*
