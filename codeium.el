@@ -177,7 +177,7 @@
 
 
 (codeium-def codeium/metadata/ide_name "emacs")
-(codeium-def codeium/metadata/extension_version "1.1.32")
+(codeium-def codeium/metadata/extension_version codeium-local-server-version)
 (codeium-def codeium/metadata/ide_version emacs-version)
 ;; (codeium-def codeium/metadata/request_id (api)
 ;; 	(when (eq api 'GetCompletions)
@@ -508,7 +508,7 @@ If you set `codeium-port', it will be used instead and no process will be create
 			(filename (codeium-get-config 'codeium-command-executable nil state))
 			(url (codeium-get-config 'codeium-download-url nil state)))
 		(when (file-exists-p filename)
-			(unless (yes-or-no-p (format "%s alreay exist; overwrite? " filename)) (user-error "aborted")))
+			(unless (yes-or-no-p (format "%s already exists; overwrite? " filename)) (user-error "aborted")))
 		(unless
 			(or noconfirm
 				(yes-or-no-p
@@ -1064,12 +1064,12 @@ returns. Prefer using `codeium-request' directly instead.
 									`((codeium/completion_id . ,(nth num completionids)))
 									#'ignore))))))))
 	;; (error
-	;; 	(message "an error occured in codeium-completion-at-point: %s" (error-message-string err))
+	;; 	(message "an error occurred in codeium-completion-at-point: %s" (error-message-string err))
 	;; 	nil)
 	;; )
 	)
 
-;; TODO: put these in seperate file
+;; TODO: put these in separate file
 
 (defun codeium-test ()
 	(cl-letf*
