@@ -104,28 +104,16 @@
 (codeium-def codeium-directory (_api state) (codeium-state-manager-directory state))
 (codeium-def codeium-port (_api state) (codeium-state-port state))
 
-
-(defun codeium-get-operating-system-architecture ()
-	(let ((os (string-trim (shell-command-to-string "uname -s")))
-			 (arch (string-trim (shell-command-to-string "uname -m"))))
-		(list os arch)))
-
 (defun codeium-get-language-server-string ()
-	(let* ((os-arch (codeium-get-operating-system-architecture))
-			  (is-arm (or (string-match-p "arm" (cadr os-arch))
-						  (string-match-p "aarch64" (cadr os-arch)))))
-		(cond
-			((and (string= (car os-arch) "Linux") is-arm)
-				"language_server_linux_arm")
-			((and (string= (car os-arch) "Linux") (string= (cadr os-arch) "x86_64"))
-				"language_server_linux_x64")
-			((and (string= (car os-arch) "Darwin") (string= (cadr os-arch) "x86_64"))
-				"language_server_macos_x64")
-			((and (string= (car os-arch) "Darwin") is-arm)
-				"language_server_macos_arm")
-			((string= (car os-arch) "Windows")
-				"language_server_windows_x64.exe")
-			(t (car os-arch)))))
+	(let ((arch
+			  (unless (eq system-type 'windows-nt)
+				  (if (string= (string-trim (shell-command-to-string "uname -m")) "x86_64")
+					  "x64" "arm"))))
+		(pcase system-type
+			('windows-nt "language_server_windows_x64.exe")
+			('gnu/linux (concat "language_server_linux_" arch))
+			('darwin (concat "language_server_macos_" arch))
+			(_ (error "unable to automatically determine your system, or your system is not supported yet. Please file an issue on github.")))))
 
 (codeium-def codeium-local-server-version codeium-latest-local-server-version)
 
