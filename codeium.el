@@ -34,12 +34,14 @@
 ;; takes 1, 2, or 3 arguments, which are (api state val)
 ;; api is a symbol such as 'GetCompletions, state is of type `codeium-state'
 ;; which keeps all the state (including a process, port, and some hash tables)
-;; val is only relavant if the field is only sensible given a previous
+;; val is only relevant if the field is only sensible given a previous
 ;; value, such as `codeium/request_id' used in `'CancelRequest'
 
 ;; use M-x `customize' see a full list of settings.
 
 ;;; Code:
+
+(defvar codeium-latest-local-server-version "1.1.38")
 
 (require 'url-parse) ; for url-parse-make-urlobj
 ;; removing this gives comp warnings, not sure why since its defined in url-http?
@@ -104,13 +106,35 @@
 (codeium-def codeium-directory (_api state) (codeium-state-manager-directory state))
 (codeium-def codeium-port (_api state) (codeium-state-port state))
 
+
+(defun codeium-get-operating-system-architecture ()
+	(let ((os (string-trim (shell-command-to-string "uname -s")))
+			 (arch (string-trim (shell-command-to-string "uname -m"))))
+		(list os arch)))
+
+(defun codeium-get-language-server-string ()
+	(let* ((os-arch (codeium-get-operating-system-architecture))
+			  (is-arm (or (string-match-p "arm" (cadr os-arch))
+						  (string-match-p "aarch64" (cadr os-arch)))))
+		(cond
+			((and (string= (car os-arch) "Linux") is-arm)
+				"language_server_linux_arm")
+			((and (string= (car os-arch) "Linux") (string= (cadr os-arch) "x86_64"))
+				"language_server_linux_x64")
+			((and (string= (car os-arch) "Darwin") (string= (cadr os-arch) "x86_64"))
+				"language_server_macos_x64")
+			((and (string= (car os-arch) "Darwin") is-arm)
+				"language_server_macos_arm")
+			((string= (car os-arch) "Windows")
+				"language_server_windows_x64.exe")
+			(t (car os-arch)))))
+
+(codeium-def codeium-local-server-version codeium-latest-local-server-version)
+
 (codeium-def codeium-download-url
 	(condition-case err;; dont signal error on loading
-		(concat "https://github.com/Exafunction/codeium/releases/download/language-server-v1.1.38/"
-			(pcase system-type
-				('gnu/linux "language_server_linux_x64.gz")
-				('windows-nt "language_server_windows_x64.exe.gz")
-				(_ (error "system-type %s not supported (yet)" system-type))))
+		(concat "https://github.com/Exafunction/codeium/releases/download/language-server-"
+			codeium-local-server-version "/" (codeium-get-language-server-string))
 		(error
 			(defvar codeium-download-url (lambda () (signal (car err) (cdr err))))
 			nil)))
@@ -450,6 +474,8 @@ If you set `codeium-port', it will be used instead and no process will be create
 
 (defun codeium-time-from (start-time)
 	(float-time (time-subtract (current-time) start-time)))
+
+
 
 ;;;###autoload
 (defun codeium-install (&optional state noconfirm)
