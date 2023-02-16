@@ -23,7 +23,7 @@ Contributions are welcome! Feel free to submit pull requests and issues related 
 
 <br />
 
-![Emacs demo v4](https://user-images.githubusercontent.com/7545794/219252564-7ad530ee-ac72-4e29-9bec-c2bafb42efa8.gif)
+![Emacs Demo - Final](https://user-images.githubusercontent.com/7545794/219270660-f14ddb8c-7087-4d97-9a15-b043467a2c00.gif)
 
 <br />
 
