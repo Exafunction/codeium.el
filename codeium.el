@@ -1,6 +1,26 @@
 ;;; codeium.el --- codeium client for emacs         -*- lexical-binding: t; -*-
 
-;; licence here
+;; MIT License
+
+;; Copyright (c) 2023 Exafunction
+
+;; Permission is hereby granted, free of charge, to any person obtaining a copy
+;; of this software and associated documentation files (the "Software"), to deal
+;; in the Software without restriction, including without limitation the rights
+;; to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+;; copies of the Software, and to permit persons to whom the Software is
+;; furnished to do so, subject to the following conditions:
+
+;; The above copyright notice and this permission notice shall be included in all
+;; copies or substantial portions of the Software.
+
+;; THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+;; IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+;; FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+;; AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+;; LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+;; OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+;; SOFTWARE.
 
 ;;; Commentary:
 
@@ -10,7 +30,7 @@
 ;; add `codeium-completion-at-point' to your `completion-at-point-functions'
 ;; use `codeium-diagnose' to see currently enabled apis and fields
 
-;; anything defined by `codeium-def' a constant or a function that
+;; anythinng defined by `codeium-def' a constant or a function that
 ;; takes 1, 2, or 3 arguments, which are (api state val)
 ;; api is a symbol such as 'GetCompletions, state is of type `codeium-state'
 ;; which keeps all the state (including a process, port, and some hash tables)
@@ -21,14 +41,13 @@
 
 ;;; Code:
 
-(setf version "1.1.38")
+(defvar codeium-latest-local-server-version "1.1.38")
 
 (require 'url-parse) ; for url-parse-make-urlobj
 ;; removing this gives comp warnings, not sure why since its defined in url-http?
 (eval-when-compile
 	(defvar url-http-end-of-headers)
-	(defvar url-http-response-status)
-	(defvar help-xref-stack-item))
+	(defvar url-http-response-status))
 
 (defgroup codeium nil
 	"codeium.el customization -some-doc-str-here-"
@@ -42,19 +61,27 @@
 		(if (string-prefix-p "codeium" symbol-name)
 			(concat "codeium-default" (substring symbol-name (length "codeium")))
 			(error "invalid name"))))
+
+(eval-and-compile
+	(defun codeium-def-handle-args (args)
+		(let ((doc-str nil) (value nil) (arglist nil) (body nil))
+			(ignore doc-str value arglist body)
+			(pcase-let*
+				(
+					(
+						(or
+							`(,value)
+							`(,value ,(and (pred stringp) doc-str))
+							`(,arglist ,(and (pred stringp) doc-str) . ,body)
+							`(,arglist . ,body))
+						args))
+				(list doc-str value arglist body)))))
+
 (defmacro codeium-def (name &rest args)
 	(declare (doc-string 3))
 	(pcase-let*
 		(
-			(doc-str) (value) (arglilst) (body)
-			(
-				(or
-					`(,value)
-					`(,value ,(and (pred stringp) doc-str))
-					`(,arglist ,(and (pred stringp) doc-str) . ,body)
-					`(,arglist . ,body)
-					)
-				args)
+			(`(,doc-str ,value ,arglist ,body) (codeium-def-handle-args args))
 			(funcsymbol (when body (intern (codeium-default-func-name (symbol-name name)))))
 			(value (or value `',funcsymbol))
 
@@ -74,19 +101,48 @@
 				 :group 'codeium)
 			 ,@funcdefform)))
 
+(codeium-def codeium-delay 0.001)
 
-(codeium-def codeium-directory () nil)
+(codeium-def codeium-directory (_api state) (codeium-state-manager-directory state))
+(codeium-def codeium-port (_api state) (codeium-state-port state))
 
-(codeium-def codeium-command (api state)
-	`(,(expand-file-name "codeium/codeium_language_server" user-emacs-directory)
-		 "--api_server_host" "server.codeium.com"
-		 "--api_server_port" "443" 
-		 "--manager_dir" ,(codeium-state-manager-directory state)))
+
+(defun codeium-get-operating-system-architecture ()
+	(let ((os (string-trim (shell-command-to-string "uname -s")))
+			 (arch (string-trim (shell-command-to-string "uname -m"))))
+		(list os arch)))
+
+(defun codeium-get-language-server-string ()
+	(let* ((os-arch (codeium-get-operating-system-architecture))
+			  (is-arm (or (string-match-p "arm" (cadr os-arch))
+						  (string-match-p "aarch64" (cadr os-arch)))))
+		(cond
+			((and (string= (car os-arch) "Linux") is-arm)
+				"language_server_linux_arm")
+			((and (string= (car os-arch) "Linux") (string= (cadr os-arch) "x86_64"))
+				"language_server_linux_x64")
+			((and (string= (car os-arch) "Darwin") (string= (cadr os-arch) "x86_64"))
+				"language_server_macos_x64")
+			((and (string= (car os-arch) "Darwin") is-arm)
+				"language_server_macos_arm")
+			((string= (car os-arch) "Windows")
+				"language_server_windows_x64.exe")
+			(t (car os-arch)))))
+
+(codeium-def codeium-local-server-version codeium-latest-local-server-version)
+
+(codeium-def codeium-download-url
+	(condition-case err;; dont signal error on loading
+		(concat "https://github.com/Exafunction/codeium/releases/download/language-server-"
+			codeium-local-server-version "/" (codeium-get-language-server-string))
+		(error
+			(defvar codeium-download-url (lambda () (signal (car err) (cdr err))))
+			nil)))
 
 (defconst codeium-apis
-	'(GetCompletions Heartbeat CancelRequest GetAuthToken RegisterUser auth-redirect))
+	'(GetCompletions Heartbeat CancelRequest GetAuthToken RegisterUser auth-redirect AcceptCompletion))
 
-(codeium-def codeium-api-enabled (api) t)
+(codeium-def codeium-api-enabled () t)
 
 (defvar codeium-fields-regexps
 	`(
@@ -99,6 +155,8 @@
 		 (GetAuthToken)
 		 (RegisterUser .
 			 ,(rx bol "codeium/firebase_id_token" eol))
+		 (AcceptCompletion .
+			 ,(rx bol "codeium/" (or (seq "metadata/" (* anychar)) "completion_id")  eol))
 		 ))
 (codeium-def codeium-api-fields (api)
 	(let ((regexp (alist-get api codeium-fields-regexps)))
@@ -122,28 +180,31 @@
 
 (codeium-def codeium/metadata/ide_name "emacs")
 (codeium-def codeium/metadata/extension_version "1.1.32")
-(codeium-def codeium/metadata/ide_version (emacs-version))
+(codeium-def codeium/metadata/ide_version emacs-version)
 ;; (codeium-def codeium/metadata/request_id (api)
 ;; 	(when (eq api 'GetCompletions)
 ;; 		(random most-positive-fixnum)))
 
 (defvar codeium-global-requestid-counter 0)
-(codeium-def codeium/metadata/request_id (api state)
+(codeium-def codeium/metadata/request_id (api)
 	(when (eq api 'GetCompletions)
 		(cl-incf codeium-global-requestid-counter)))
 
 ;; for CancelRequest
-(codeium-def codeium/request_id (api state val) val)
+(codeium-def codeium/request_id (_api _state val) val)
+
+;; for AcceptCompletion
+(codeium-def codeium/completion_id (_api _state val) val)
 
 ;; alternative getting key from file?
 ;; TODO
 ;; (setq codeium/metadata/api_key 'codeium-default/metadata/api_key)
 (defun codeium-get-saved-api-key ())
-(codeium-def codeium/metadata/api_key (api state)
+(codeium-def codeium/metadata/api_key (_api state)
 	(if-let ((api-key (or (codeium-state-last-api-key state) (codeium-get-saved-api-key))))
 		(setq codeium/metadata/api_key api-key)
 		(setq codeium/metadata/api_key
-			(lambda (api state)
+			(lambda (_api state)
 				(when-let ((api-key (codeium-state-last-api-key state)))
 					(setq codeium/metadata/api_key api-key))))
 		nil))
@@ -178,30 +239,55 @@
 (codeium-def codeium/editor_options/insert_spaces ()
 	(if indent-tabs-mode :false t))
 
-(codeium-def codeium/firebase_id_token (api state) (codeium-state-last-auth-token state))
+(codeium-def codeium/firebase_id_token (_api state) (codeium-state-last-auth-token state))
 
+(eval-and-compile
+	(cl-defstruct
+		(codeium-state
+			(:constructor codeium-state-make)
+			(:copier nil))
+		(name "")
+		(config nil
+			:documentation "state-wise config, access it with `codeium-config'")
+		(proc nil
+			:documentation "created on a `codeium-init', not created if one specifies `codeium-port'")
+		(manager-directory nil
+			:documentation "directory which codeium local language server places temp files; created by `codeium-default-command'")
+		(port nil
+			:documentation "port used by codeium local language server; by default a random port is used.
+If you set `codeium-port', it will be used instead and no process will be created")
+		(port-ready-hook nil
+			:documentation "hook called when the server is ready; use `codeium-on-port-ready' to add to it")
 
-(cl-defstruct
-	(codeium-state
-		(:constructor codeium-state-make)
-		(:copier nil))
-	(name "")
-	config
-	proc
-	manager-directory
-	port
-	port-ready-callback-list
-	background-process-cancel-fn
+		(alive-tracker nil
+			:documentation "a symbol, set to nil on a codeium-reset which ensures that requests on timers made before the request are dropped")
 
-	last-auth-token
-	last-api-key
+		last-auth-token
+		last-api-key
 
-	(last-request-id 0)
-	;; these has distinct elements
-	(results-table (make-hash-table :test 'eql :weakness nil)) ; results that are ready
-	(pending-table (make-hash-table :test 'eql :weakness nil)) ; requestid that we are waiting for
-	)
+		(last-request-id 0)
 
+		;; hash tables for codeium-request-synchronously
+		;; these has distinct elements
+		(results-table (make-hash-table :test 'eql :weakness nil)) ; results that are ready
+		(pending-table (make-hash-table :test 'eql :weakness nil)) ; requestid that we are waiting for
+		))
+
+(codeium-def codeium-command-executable
+	(expand-file-name
+		(pcase system-type
+			('windows-nt "codeium_language_server.exe")
+			(_ "codeium_language_server"))
+		(expand-file-name "codeium" user-emacs-directory)))
+
+(codeium-def codeium-command (_api state)
+	"doc-str here"
+	(unless (codeium-state-manager-directory state)
+		(setf (codeium-state-manager-directory state) (make-temp-file "codeium_" t)))
+	`(,(codeium-get-config 'codeium-command-executable nil nil)
+		 "--api_server_host" "server.codeium.com"
+		 "--api_server_port" "443" 
+		 "--manager_dir" ,(codeium-state-manager-directory state)))
 
 (defvar codeium-state (codeium-state-make :name "default"))
 
@@ -284,7 +370,6 @@
 							(with-current-buffer standard-output
 								(help-insert-xref-button (symbol-name (car item)) 'help-variable-def (car item))
 								(insert (propertize "\t" 'display '(space :align-to 40))))
-							(string-fill " " 5)
 							(let*
 								(
 									(print-escape-newlines t) (print-length 100)
@@ -308,39 +393,19 @@
 			(codeium-get-config 'codeium-api-fields api state))
 		body))
 
-(codeium-def codeium-log-buffer (state)
+(codeium-def codeium-log-buffer ()
 	(let ((buf (get-buffer "*codeium-log*")))
 		(if buf buf
 			(setq buf (generate-new-buffer "*codeium-log*"))
 			(with-current-buffer buf
-				(special-mode))
+				(special-mode)
+				(buffer-disable-undo))
 			buf)))
 
-(defun codeium-ensure-process (state)
-	(if (codeium-get-config 'codeium-directory nil state)
-		(setf (codeium-state-manager-directory state) (codeium-get-config 'codeium-directory nil state))
-		(let ((proc (codeium-state-proc state)) buf
-				 (executable (car (codeium-get-config 'codeium-command nil state))))
-			(unless (executable-find executable)
-				(if (and (file-name-absolute-p executable) (not (file-exists-p executable)))
-					(error "%s does not exist. use M-x codeium-install to install one"
-						executable)
-					(error "%s is not a valid executable. use M-x codeium-install to install one"
-						executable)))
-			(unless (and proc (process-live-p proc))
-				(setq buf (codeium-get-config 'codeium-log-buffer nil state))
-				(unless (codeium-state-manager-directory state)
-					(setf (codeium-state-manager-directory state) (make-temp-file "codeium_" t)))
-				(setq proc
-					(make-process
-						:name "codeium"
-						:connection-type 'pipe
-						:buffer buf
-						:coding 'no-conversion
-						:command (codeium-get-config 'codeium-command nil state)
-						:noquery t))
-				(setf (codeium-state-proc state) proc))
-			proc)))
+(codeium-def codeium-mode-line-enable (api)
+	(not (memq api '(CancelRequest Heartbeat AcceptCompletion))))
+(codeium-def codeium-mode-line-keep-time 3)
+
 
 ;; https://nullprogram.com/blog/2010/05/11/
 ;; ID: 90aebf38-b33a-314b-1198-c9bffea2f2a2
@@ -389,64 +454,48 @@
 		(message "%s sent to kill-ring" codeium-last-auth-url)
 		(kill-new codeium-last-auth-url)))
 
-(defun codeium-defer-until-no-input (func &optional args)
-	(if (input-pending-p)
-		(run-with-idle-timer 0.005 nil #'codeium-defer-until-no-input func args)
-		(apply func args)))
-(defun codeium-run-with-timer (secs func &rest args)
-	(run-with-timer secs nil #'codeium-defer-until-no-input func args))
+(defun codeium-defer-until-no-input (state tracker func &optional args)
+	(when (eq tracker (codeium-state-alive-tracker state))
+		(if (input-pending-p)
+			(run-with-idle-timer 0.005 nil #'codeium-defer-until-no-input state tracker func args)
+			(with-local-quit
+				(apply func args)))))
+(defun codeium-run-with-timer (state secs func &rest args)
+	(unless (codeium-state-alive-tracker state)
+		(error "codeium-state is not alive! %s" state))
+	(unless (numberp secs)
+		(if (eq secs 'default)
+			(setq secs (codeium-get-config 'codeium-delay nil state))))
+	(run-with-timer secs nil #'codeium-defer-until-no-input
+		state (codeium-state-alive-tracker state) func args))
+;; (defun codeium-run-with-timer-with-tracker (state tracker secs func &rest args)
+;; 	(when (eq tracker (codeium-state-alive-tracker state))
+;; 		(apply #'codeium-run-with-timer state secs func args)))
 
 (defun codeium-time-from (start-time)
 	(float-time (time-subtract (current-time) start-time)))
 
-(defun codeium-async-process (command-list callback &optional buffer)
-	(make-process
-		:name "codeium-async-process"
-		:buffer buffer 
-		:command command-list
-		:noquery t
-		:sentinel
-		(lambda (proc str)
-			(when (string= str "finished\n")
-				(codeium-defer-until-no-input callback)))))
 
-(defun get-operating-system-architecture ()
-  (let ((os (string-trim (shell-command-to-string "uname -s")))
-        (arch (string-trim (shell-command-to-string "uname -m"))))
-    (list os arch)))
-
-(defun get-language-server-string ()
-  (let* ((os-arch (get-operating-system-architecture))
-        (is-arm (or (string-match-p "arm" (cadr os-arch))
-                    (string-match-p "aarch64" (cadr os-arch)))))
-    (cond
-     ((and (string= (car os-arch) "Linux") is-arm)
-      "language_server_linux_arm")
-     ((and (string= (car os-arch) "Linux") (string= (cadr os-arch) "x86_64"))
-      "language_server_linux_x64")
-     ((and (string= (car os-arch) "Darwin") (string= (cadr os-arch) "x86_64"))
-      "language_server_macos_x64")
-     ((and (string= (car os-arch) "Darwin") is-arm)
-      "language_server_macos_arm")
-     ((string= (car os-arch) "Windows")
-      "language_server_windows_x64.exe")
-		 (t (car os-arch)))))
 
 ;;;###autoload
-(defun codeium-install (&optional callback state noconfirm)
+(defun codeium-install (&optional state noconfirm)
 	(interactive)
 	(setq state (or state codeium-state))
+	(when (codeium-state-alive-tracker state)
+		(unless (yes-or-no-p "codeium is already running! are you sure to codeium-install? ") (user-error "aborted")))
+	(setf (codeium-state-alive-tracker state)
+		(gensym (codeium-state-name codeium-state)))
 	(let*
 		(
-			(filename (car (codeium-get-config 'codeium-command nil state)))
-			(language-server-string (get-language-server-string))
-			(url (concat "https://github.com/Exafunction/codeium/releases/download/language-server-v" version "/" language-server-string ".gz")))
+			(filename (codeium-get-config 'codeium-command-executable nil state))
+			(url (codeium-get-config 'codeium-download-url nil state)))
 		(when (file-exists-p filename)
-			(unless (yes-or-no-p (format "%s alreay exist; overwrite? " filename)) (error "aborted")))
+			(unless (yes-or-no-p (format "%s alreay exist; overwrite? " filename)) (user-error "aborted")))
 		(unless
-			(yes-or-no-p
-				(format "you are about to download %s to %s. Proceed? " url filename))
-			(error "aborted"))
+			(or noconfirm
+				(yes-or-no-p
+					(format "you are about to download %s to %s. Proceed? " url filename)))
+			(user-error "aborted"))
 		(let ((log-callback (codeium-log-request state url)))
 			(url-retrieve url
 				(lambda (status)
@@ -459,169 +508,259 @@
 											(if url-http-response-status
 												url-http-response-status status)
 											"no status available"))))))
-					(let ((url-buf (current-buffer)))
-						(codeium-run-with-timer 0.005
-							(lambda ()
-								(codeium-install-process-url-res url url-buf filename state callback)))))
+					(if (and url-http-response-status (<= 200 url-http-response-status) (<= url-http-response-status 299))
+						(let ((url-buf (current-buffer)))
+							(codeium-run-with-timer state 'default
+								(lambda ()
+									(codeium-install-process-url-res state url url-buf filename))))
+						(message "codeium cannot fetch local language server: %s %s"
+							status url-http-response-status)))
 				nil 'silent 'inhibit-cookies))))
 
-(defun codeium-install-process-url-res (url url-buf filename state callback)
+(defun codeium-install-process-url-res (state url url-buf filename)
+	(make-directory (file-name-directory filename) t)
 	(with-temp-file filename
 		(set-buffer-multibyte nil)
 		(url-insert-buffer-contents url-buf url)
 		(unless (zlib-decompress-region (point-min) (point-max))
-			(error "zlib fails")))
+			(user-error "zlib is unabled to decompress")))
 	(chmod filename #o744)
 	(kill-buffer url-buf)
-	(messgae "successfully installed codeium binary")
-	(when callback
-		(funcall callback)))
+	(message "successfully installed codeium local language server")
+	(codeium-background-process-start state))
 
 
+(defun codeium-request-callback (status state tracker callback log-callback)
+	(let ((buf (current-buffer)))
+		(when (eq tracker (codeium-state-alive-tracker state))
+			(codeium-run-with-timer state 'default
+				(lambda ()
+					(when (buffer-live-p buf)
+						(with-current-buffer buf
+							(codeium-request-callback-process-res
+								status callback log-callback))))))))
 ;; should be local to the url retrieve buffer
 (defvar-local codeium-kill-url-retrieve-buffer t)
-(defun codeium-request-callback (status callback log-callback)
-	(if (input-pending-p)
-		(let ((url-buffer (current-buffer)))
-			;; note: we dont need to save say url-http-end-of-headers
-			;; bc its local to url-buffer
-			(run-with-idle-timer 0.005 nil
-				(lambda ()
-					(cl-letf (((current-buffer) url-buffer))
-						(codeium-request-callback status callback request-time log-marker)))))
-		(when log-callback
-			(funcall log-callback
-				(let ((inhibit-read-only t) (print-escape-newlines t))
+(defun codeium-request-callback-process-res (status callback log-callback)
+	(when log-callback
+		(let*
+			((print-escape-newlines t)
+				(status-str
 					(format " status: %s"
 						(prin1-to-string
 							(or
 								(if url-http-response-status
 									url-http-response-status status)
-								"no status available"))))))
-		(funcall callback
-			(if url-http-end-of-headers
-				(let (parsed)
-					(goto-char url-http-end-of-headers)
-					(setq parsed (json-parse-buffer :object-type 'alist))
-					;; (switch-to-buffer (current-buffer))
-					(when codeium-kill-url-retrieve-buffer
-						(kill-buffer))
-					(when log-callback
-						(funcall log-callback
-							(let ((inhibit-read-only t) (print-escape-newlines t))
-								(format " %s"
-									(prin1-to-string
-										(if (listp parsed)
-											(or
-												(alist-get 'state parsed)
-												(alist-get 'message parsed)
-												parsed)
-											parsed))))))
-					parsed)
-				'error))))
+								"no status available")))))
+			(funcall log-callback status-str
+				(if (and url-http-response-status (= url-http-response-status 200))
+					"" status-str))))
+	(funcall callback
+		(let ((parsed 'error))
+			(when url-http-end-of-headers
+				(goto-char url-http-end-of-headers)
+				(ignore-error json-parse-error
+					(setq parsed (json-parse-buffer :object-type 'alist))))
+			(when codeium-kill-url-retrieve-buffer
+				(kill-buffer))
+			(when (and parsed (not (eq parsed 'error)) log-callback)
+				(funcall log-callback
+					(let* ((print-escape-newlines t))
+						(format " %s"
+							(prin1-to-string
+								(if (listp parsed)
+									(or
+										(alist-get 'state parsed)
+										(alist-get 'message parsed)
+										parsed)
+									parsed))))
+					(when-let
+						((message-str
+							 (and (listp parsed)
+								 (or
+									 (alist-get 'message (alist-get 'state parsed))
+									 (alist-get 'message parsed)))))
+						(when (stringp message-str)
+							(concat " " message-str)))))
+			parsed)))
 
-(defun codeium-log-request (state str)
+(defun codeium-log-request (state str &optional mode-line-str mode-line-ttl)
 	"print str on its own line in *codeium-log*, returns a callback function
 that can add to that line."
-	(when-let ((buf (codeium-get-config 'codeium-log-buffer nil state)))
-		(with-current-buffer buf
-			(let ((inhibit-read-only t)
-					 time-beg-marker time-end-marker insert-marker
-					 (start-time (current-time)))
-				(save-excursion
-					(goto-char (point-max))
-					(beginning-of-line)
-					(insert-before-markers "\n")
-					(cl-decf (point))
-					(insert str)
-					(insert " ")
-					(setq time-beg-marker (point-marker))
-					(insert codeium-log-waiting-text)
-					(setq time-end-marker (point-marker))
-					(set-marker-insertion-type time-end-marker t)
-					(setq insert-marker (point-marker))
-					(set-marker-insertion-type insert-marker t)
-					(lambda (newstr)
-						(when (buffer-live-p buf)
-							(with-current-buffer buf
-								(let ((inhibit-read-only t))
-									(setf (buffer-substring time-beg-marker time-end-marker)
-										(format "%.2f secs" (codeium-time-from start-time)))
-									(set-marker-insertion-type time-end-marker nil)
-									(setf (buffer-substring insert-marker insert-marker)
-										newstr)
-									(set-marker-insertion-type time-end-marker t))))))))))
+	(let ((modeline-callback (when mode-line-str (codeium-log-mode-line state mode-line-str mode-line-ttl))))
+		(when-let ((buf (codeium-get-config 'codeium-log-buffer nil state)))
+			(with-current-buffer buf
+				(let ((inhibit-read-only t)
+						 time-beg-marker time-end-marker insert-marker
+						 (start-time (current-time)))
+					(save-excursion
+						(goto-char (point-max))
+						(beginning-of-line)
+						(insert-before-markers "\n")
+						(goto-char (1- (point)))
+						(insert str)
+						(insert " ")
+						(setq time-beg-marker (point-marker))
+						(insert codeium-log-waiting-text)
+						(setq time-end-marker (point-marker))
+						(set-marker-insertion-type time-end-marker t)
+						(setq insert-marker (point-marker))
+						(set-marker-insertion-type insert-marker t)
+						(lambda (newstr &optional newstr-modeline modeline-append)
+							(when (and newstr-modeline modeline-callback)
+								(funcall modeline-callback newstr-modeline modeline-append))
+							(when (buffer-live-p buf)
+								(with-current-buffer buf
+									(let ((inhibit-read-only t))
+										(cl--set-buffer-substring time-beg-marker time-end-marker
+											(format "%.2f secs" (codeium-time-from start-time)))
+										(set-marker-insertion-type time-end-marker nil)
+										(cl--set-buffer-substring insert-marker insert-marker
+											newstr)
+										(set-marker-insertion-type time-end-marker t)))))))))))
 
-(defun codeium-request-with-body (state api body callback)
-	(if (codeium-state-port state)
-		(let*
-			(
-				(url (codeium-get-config 'codeium-url api state))
-				(url-request-method "POST")
-				(url-request-extra-headers `(("Content-Type" . "application/json")))
-				(url-request-data (encode-coding-string (json-serialize body) 'utf-8))
-				(log-callback (codeium-log-request state (url-recreate-url url))))
-			(when-let
+(defvar-local codeium-mode-line nil)
+;; requirement for modeline
+(put 'codeium-mode-line 'risky-local-variable t)
+
+
+;; run user code in timers, for efficiency and infinite loop guard
+(defvar-local codeium-modeline-refresh-scheduled nil)
+(defun codeium-schedule-refresh-modeline-currentbuffer ()
+	(unless codeium-modeline-refresh-scheduled
+		(run-with-timer 0.005 nil #'codeium-refresh-modeline (current-buffer))
+		(setq codeium-modeline-refresh-scheduled t)))
+(defun codeium-refresh-modeline (buffer)
+	(if (input-pending-p)
+		(run-with-idle-timer 0.005 nil #'codeium-refresh-modeline buffer)
+		(when (buffer-live-p buffer)
+			(with-current-buffer buffer
+				(unwind-protect
+					(force-mode-line-update)
+					(setq codeium-modeline-refresh-scheduled nil))))))
+
+(defun codeium-remove-modeline-segment (segment buffer)
+	(when (buffer-live-p buffer)
+		(with-current-buffer buffer
+			(setq codeium-mode-line (delq segment codeium-mode-line))
+			(codeium-schedule-refresh-modeline-currentbuffer))))
+
+(defun codeium-log-mode-line (_state str ttl)
+	(let*
+		(
+			(segment `("[" nil (-30 ,str) "]"))
+			(buffer (current-buffer))
+			(start-time (current-time))
+			(timer (run-with-timer ttl nil #'codeium-remove-modeline-segment segment buffer)))
+		(push segment codeium-mode-line)
+		(codeium-schedule-refresh-modeline-currentbuffer)
+		(lambda (newstr &optional append)
+			(cancel-timer timer)
+			(when (buffer-live-p buffer)
+				(with-current-buffer buffer
+					(unless (memq segment codeium-mode-line) (push segment codeium-mode-line))
+					(setq timer (run-with-timer ttl nil #'codeium-remove-modeline-segment segment buffer))
+					(setf (nth 1 segment)
+						(format "%.2fs" (codeium-time-from start-time)))
+					(setf (nth 1 (nth 2 segment))
+						(if append
+							(concat (nth 1 (nth 2 segment)) newstr)
+							newstr))
+					(codeium-schedule-refresh-modeline-currentbuffer))))))
+
+(defun codeium-request-with-body (api state body tracker callback)
+	(when (eq tracker (codeium-state-alive-tracker state))
+		(if (codeium-get-config 'codeium-port nil state)
+			(let*
 				(
-					(url-buf (url-retrieve url 'codeium-request-callback (list callback log-callback) 'silent 'inhibit-cookies))
-					(url-proc (get-buffer-process url-buf)))
-				(set-process-query-on-exit-flag url-proc nil)))
-		(codeium-on-port-ready state (lambda () (codeium-request-with-body state api body callback)))))
+					(url (codeium-get-config 'codeium-url api state))
+					(url-request-method "POST")
+					(url-request-extra-headers `(("Content-Type" . "application/json")))
+					(url-request-data (encode-coding-string (json-serialize body) 'utf-8))
+					(log-callback
+						(codeium-log-request state (url-recreate-url url)
+							(when (codeium-get-config 'codeium-mode-line-enable api state)
+								(symbol-name api))
+							(codeium-get-config 'codeium-mode-line-keep-time api state))))
+				(when-let
+					(
+						(url-buf
+							(url-retrieve url #'codeium-request-callback
+								(list state (codeium-state-alive-tracker state) callback log-callback)
+								'silent 'inhibit-cookies))
+						(url-proc (get-buffer-process url-buf)))
+					(set-process-query-on-exit-flag url-proc nil)))
+			(codeium-on-port-ready state (lambda () (codeium-request-with-body api state body tracker callback))))))
 
-(defun codeium-request (state api vals-alist callback)
-	"returns the body as returned by codeium-make-body-for-api, or nil if not codeium-api-enabled"
+(defun codeium-request (api state vals-alist callback)
+	"make an async request to api, calls callback when done.
+callback is called with a single argument, the return of
+(json-parse-buffer :object-type 'alist)
+
+returns the body as returned by codeium-make-body-for-api
+If `codeium-api-enabled' returns nil, does nothing.
+
+"
+	(unless (codeium-state-alive-tracker state)
+		(error "codeium-state is not alive! %s" state))
 	(when (codeium-get-config 'codeium-api-enabled api state)
 		(let ((body (codeium-make-body-for-api api state vals-alist)))
-			(codeium-request-with-body state api body callback)
+			(codeium-request-with-body api state body (codeium-state-alive-tracker state) callback)
 			body)))
 
-(defun codeium-background-process-next (state)
-	;; cancel-fn stores the function to cancel this function
-	;; so we safely removes it
-	(setf (codeium-state-background-process-cancel-fn state) nil)
-	(codeium-background-process-start state))
-(defun codeium-background-process-request (state api vals-alist callback)
-	;; when the request is completed, we check if there has been any call to cancel earlier
-	(let ((tracker (make-symbol "cancel-distinct-tracker")))
-		(fset tracker #'ignore)
-		(setf (codeium-state-background-process-cancel-fn state) tracker)
-		(codeium-request state api vals-alist
-			(lambda (res)
-				(when (eq (codeium-state-background-process-cancel-fn state) tracker)
-					(funcall callback res))))))
+
+(defun codeium-background-process-schedule (state)
+	(codeium-run-with-timer state 'default #'codeium-background-process-start state))
+
+(defun codeium-create-process (state)
+	(let (buf (executable (car (codeium-get-config 'codeium-command nil state))))
+		(unless (executable-find executable)
+			(if (and (file-name-absolute-p executable) (not (file-exists-p executable)))
+				(user-error "%s does not exist. use M-x codeium-install to install one"
+					executable)
+				(user-error "%s is not a valid executable. use M-x codeium-install to install one"
+					executable)))
+		(setq buf (codeium-get-config 'codeium-log-buffer nil state))
+		(setf (codeium-state-proc state)
+			(make-process
+				:name "codeium"
+				:connection-type 'pipe
+				:buffer buf
+				:coding 'no-conversion
+				:command (codeium-get-config 'codeium-command nil state)
+				:noquery t))))
+
 (defun codeium-background-process-start (state)
 	;; entrypoint
 	;; since user calls start, cancel previous stuff
-	(when (codeium-state-background-process-cancel-fn state)
-		(funcall (codeium-state-background-process-cancel-fn state))
-		(setf (codeium-state-background-process-cancel-fn state) nil))
+	(unless (codeium-state-alive-tracker state)
+		(error "codeium-state is not alive! %s" state))
 	(cond
-		((input-pending-p)
-			(let ((timer (run-with-idle-timer 0.005 nil #'codeium-background-process-next state)))
-				(setf (codeium-state-background-process-cancel-fn state) (lambda () (cancel-timer timer)))))
-		((and (not (codeium-state-manager-directory state))
-			 (or (not (codeium-state-proc state))
+		((or
+			 (and
+				 (not (codeium-get-config 'codeium-port nil state))
+				 (not (codeium-get-config 'codeium-directory nil state))
+				 (not (codeium-state-proc state)))
+			 ;; we created the process but that is now dead for some reason
+			 (and (codeium-state-proc state)
 				 (not (process-live-p (codeium-state-proc state)))))
 			(setf (codeium-state-port state) nil)
-			(codeium-ensure-process state)
-			(codeium-background-process-start state))
-		((not (codeium-state-port state))
-			(unless (codeium-state-manager-directory state) 
+			(when-let ((dir (codeium-state-manager-directory state)))
+				(delete-directory dir t)
+				(setf (codeium-state-manager-directory state) nil))
+			(codeium-create-process state)
+			(codeium-background-process-schedule state))
+		((not (codeium-get-config 'codeium-port nil state))
+			(unless (codeium-get-config 'codeium-directory nil state) 
 				(error "no manager directory defined"))
 			(let ((files
-					  (directory-files (codeium-state-manager-directory state)
+					  (directory-files (codeium-get-config 'codeium-directory nil state)
 						  nil (rx bol (* num) eol))))
-				(if files
-					(progn
-						(setf (codeium-state-port state) (string-to-number (car files)))
-						(while (codeium-state-port-ready-callback-list state)
-							(let ((callbacks (codeium-state-port-ready-callback-list state)))
-								(setf (codeium-state-port-ready-callback-list state) nil)
-								(mapc #'funcall callbacks)))
-						(codeium-background-process-next state))
-					(let ((timer (run-with-timer 0.005 nil #'codeium-background-process-next state)))
-						(setf (codeium-state-background-process-cancel-fn state) (lambda () (cancel-timer timer)))))))
-
+				(when files
+					(setf (codeium-state-port state) (string-to-number (car files)))
+					(mapc (lambda (func) (codeium-run-with-timer state 'default func))
+						(codeium-state-port-ready-hook state)))
+				(codeium-background-process-schedule state)))
 		((and
 			 (not (codeium-state-last-auth-token state))
 			 (not (codeium-state-last-api-key state))
@@ -630,48 +769,43 @@ that can add to that line."
 				(when (y-or-n-p (format "no codeium api-key found; visit %s to log in?" authurl))
 					(browse-url authurl))
 				(message "you can also use M-x codeium-kill-last-auth-url to copy the codeium login url"))
-			(codeium-background-process-request state 'GetAuthToken nil
+			(codeium-request 'GetAuthToken state nil
 				(lambda (res)
-					(if-let ((_ (listp res)) (token (alist-get 'authToken res)))
+					(if-let ((token (and (listp res) (alist-get 'authToken res))))
 						(setf (codeium-state-last-auth-token state) token)
 						(error "cannot get auth_token from res"))
-					(codeium-background-process-next state))))
+					(codeium-background-process-schedule state))))
 
 		((and
 			 (not (codeium-state-last-api-key state))
 			 (not (codeium-get-config 'codeium/metadata/api_key 'GetCompletions state)))
-			(codeium-background-process-request state 'RegisterUser nil
+			(codeium-request 'RegisterUser state nil
 				(lambda (res)
-					(if-let ((_ (listp res)) (key (alist-get 'api_key res)))
+					(if-let ((key (and (listp res) (alist-get 'api_key res))))
 						(progn
 							(when (y-or-n-p "save codeium/metadata/api_key using customize?")
 								(customize-save-variable 'codeium/metadata/api_key key))
 							(setf (codeium-state-last-api-key state) key))
 						(error "cannot get api_key from res"))
-					(codeium-background-process-next state))))
+					(codeium-background-process-schedule state))))
 
 		(t
-			(codeium-background-process-request state 'Heartbeat nil
-				(lambda (res)
-					(let ((timer (run-with-timer 5 nil #'codeium-background-process-next state)))
-						(setf (codeium-state-background-process-cancel-fn state) (lambda () (cancel-timer timer)))))))))
+			(codeium-request 'Heartbeat state nil
+				(lambda (_res)
+					(codeium-run-with-timer state 5 #'codeium-background-process-start state))))))
 
 (defun codeium-reset (&optional state)
 	(interactive)
 	(setq state (or state codeium-state))
-	(when (codeium-state-background-process-cancel-fn state)
-		(funcall (codeium-state-background-process-cancel-fn state))
-		(setf (codeium-state-background-process-cancel-fn state) nil))
+	(setf (codeium-state-alive-tracker state) nil)
 	(when-let ((proc (codeium-state-proc state)))
 		(delete-process proc)
 		(setf (codeium-state-proc state) nil))
-	;; TODO: what if the user changes this? i should actually track whether i made the directory
-	(if (not (codeium-get-config 'codeium-directory nil state))
-		(when-let ((dir (codeium-state-manager-directory state)))
-			(delete-directory dir t)
-			(setf (codeium-state-manager-directory state) nil)))
+	(when-let ((dir (codeium-state-manager-directory state)))
+		(delete-directory dir t)
+		(setf (codeium-state-manager-directory state) nil))
 	(setf (codeium-state-port state) nil)
-	(setf (codeium-state-port-ready-callback-list state) nil)
+	(setf (codeium-state-port-ready-hook state) nil)
 	(setf (codeium-state-last-api-key state) nil)
 	(setf (codeium-state-last-auth-token state) nil)
 	(setf (codeium-state-results-table state) (make-hash-table :test 'eql :weakness nil))
@@ -679,45 +813,50 @@ that can add to that line."
 
 
 (defun codeium-on-port-ready (state callback)
-	(unless (codeium-state-background-process-cancel-fn state)
-		(codeium-background-process-start state))
 	(if (codeium-state-port state)
 		(funcall callback)
-		(push callback (codeium-state-port-ready-callback-list state))))
+		(push callback (codeium-state-port-ready-hook state))))
 
 (defun codeium-request-cancelrequest (state requestid)
-	(codeium-request state 'CancelRequest
+	(codeium-request 'CancelRequest state
 		`((codeium/request_id . ,requestid))
 		#'ignore))
 
-(defun codeium-request-getcompletions-while-noinput (state)
-	"sends 'GetCompletions request to codeium, return (reqbody . resbody) or nil
-if user input is encountered, send a 'CancelRequest before returning nil
+(defun codeium-request-synchronously (api state vals-alist)
+	"sends request to codeium, return (reqbody . resbody) or nil
+if user input is encountered, schedule a `CancelRequest' and return nil
 
 this uses `sit-for', which means that timers can be ran while this function
 waits, but these function called by timers must exit before this function
-returns. Due to this you should prefer not calling this;
-I'll eventually make an async version, but for now
-use `codeium-request' directly instead
+returns. Prefer using `codeium-request' directly instead.
 " 
-	(unless (input-pending-p)
+	(when (not (input-pending-p))
 		(let*
 			(
+				(tracker (codeium-state-alive-tracker state))
 				(requestid (cl-incf (codeium-state-last-request-id state)))
 				(_ (puthash requestid t (codeium-state-pending-table state)))
 				(reqbody
-					(codeium-request state 'GetCompletions nil
+					(codeium-request api state vals-alist
 						(lambda (res)
 							(when (gethash requestid (codeium-state-pending-table state))
 								(remhash requestid (codeium-state-pending-table state))
 								(puthash requestid res (codeium-state-results-table state))))))
 				(rst 'noexist))
-			(while (and (eq rst 'noexist) (not (input-pending-p)))
-				(sit-for 0.005)
+			(while (and (eq tracker (codeium-state-alive-tracker state)) (eq rst 'noexist) (not (input-pending-p)))
+				(sit-for (codeium-get-config 'codeium-delay nil state))
 				(setq rst (gethash requestid (codeium-state-results-table state) 'noexist)))
-			(if (eq rst 'noexist)
-				(codeium-request-cancelrequest state
-					(codeium-nested-alist-get reqbody 'codeium/metadata/request_id))
+			(if (and (eq rst 'noexist) (eq tracker (codeium-state-alive-tracker state)))
+				(when-let
+					(
+						(request-id-sent
+							(codeium-nested-alist-get reqbody 'codeium/metadata/request_id))
+						(buf (current-buffer)))
+					(codeium-run-with-timer state 'default
+						(lambda ()
+							(when (buffer-live-p buf)
+								(with-current-buffer buf
+									(codeium-request-cancelrequest state request-id-sent))))))
 				(remhash requestid (codeium-state-results-table state)))
 			(if (or (eq rst 'error) (eq rst 'noexist)) nil (cons reqbody rst)))))
 
@@ -736,7 +875,7 @@ use `codeium-request' directly instead
 				(puthash offset nil table))
 			offsets)
 		(while (and (< str-cur str-len) (<= offset-cur offset-max))
-			(dotimes (i (codeium-utf8-byte-length (substring-no-properties str str-cur (1+ str-cur))))
+			(dotimes (_ (codeium-utf8-byte-length (substring-no-properties str str-cur (1+ str-cur))))
 				(unless (eq (gethash offset-cur table 'noexist) 'noexist)
 					(puthash offset-cur str-cur table))
 				(cl-incf offset-cur))
@@ -759,16 +898,15 @@ use `codeium-request' directly instead
 						;; should be int since its been processed by codeium-parse-getcompletions-res-process-offsets
 						(offset (alist-get 'offset part))
 						(type (alist-get 'type part))
-						(text (alist-get 'text part))
-						(_ (or (string= type "COMPLETION_PART_TYPE_INLINE") (string= type "COMPLETION_PART_TYPE_BLOCK")))
-						)
-					(prog1
-						(concat
-							(substring document cur (min offset (length document)))
-							;; (substring document (min cur offset (length document)) (min offset (length document)))
-							(when (string= type "COMPLETION_PART_TYPE_BLOCK") "\n")
-							text)
-						(setq cur offset))))
+						(text (alist-get 'text part)))
+					(when (or (string= type "COMPLETION_PART_TYPE_INLINE") (string= type "COMPLETION_PART_TYPE_BLOCK"))
+						(prog1
+							(concat
+								(substring document cur (min offset (length document)))
+								;; (substring document (min cur offset (length document)) (min offset (length document)))
+								(when (string= type "COMPLETION_PART_TYPE_BLOCK") "\n")
+								text)
+							(setq cur offset)))))
 			(append (alist-get 'completionParts completion-item) `(((offset . ,end))))
 			"")))
 
@@ -809,6 +947,8 @@ use `codeium-request' directly instead
 ;; WARNING: this mutates res
 (defun codeium-parse-getcompletions-res (req res)
 	"takes req and res"
+
+	;; (setq res (cdr (codeium-request-synchronously 'GetCompletions codeium-state nil)))
 	;; (mapcar 'car res)
 	;; (state completionItems requestInfo)
 	;; (alist-get 'state res)
@@ -825,6 +965,7 @@ use `codeium-request' directly instead
 	;; (alist-get 'endOffset (alist-get 'range item))
 
 	;; (print (alist-get 'state res))
+	;; (alist-get 'completionId (alist-get 'completion item))
 	(when (alist-get 'completionItems res)
 		(let*
 			(
@@ -841,6 +982,11 @@ use `codeium-request' directly instead
 				(strings-list
 					(mapcar
 						(lambda (item) (codeium-make-completion-string item document range-min range-max))
+						items))
+				(completionids
+					(mapcar
+						(lambda (item)
+							(alist-get 'completionId (alist-get 'completion item)))
 						items)))
 			;; (print (elt items 0))
 			;; (print (alist-get 'completionParts (elt items 0)))
@@ -850,41 +996,55 @@ use `codeium-request' directly instead
 			;; ;; (print (alist-get 'source (elt items 0)))
 			;; (print (list (- range-min cursor) (- range-max cursor) (nth 0 strings-list)))
 			;; (print (list range-min cursor range-max))
-			(list (- range-min cursor) (- range-max cursor) strings-list))))
+			(list (- range-min cursor) (- range-max cursor) strings-list completionids))))
 
 ;;;###autoload
 (defun codeium-init (&optional state)
 	(interactive)
 	(setq state (or state codeium-state))
-	(codeium-background-process-start state))
+	(setf (codeium-state-alive-tracker state)
+		(gensym (codeium-state-name codeium-state)))
+	(condition-case err
+		(codeium-background-process-start state)
+		(error (codeium-reset state)
+			(signal (car err) (cdr err)))))
 
 ;;;###autoload
 (defun codeium-completion-at-point (&optional state)
 	(setq state (or state codeium-state))
+	(unless (codeium-state-alive-tracker state)
+		(codeium-init state))
 	;; (condition-case err
 	(when-let*
 		(
 			(buffer-prev-str (buffer-string))
 			(prev-point-offset (- (point) (point-min)))
-			(tmp (codeium-request-getcompletions-while-noinput state))
+			(tmp (codeium-request-synchronously 'GetCompletions state nil))
 			(req (car tmp))
 			(res (cdr tmp))
-			(rst (codeium-parse-getcompletions-res req res)))
-		(cl-destructuring-bind (dmin dmax table) rst
-			(when-let*
+			(rst (and (not (input-pending-p)) (codeium-parse-getcompletions-res req res))))
+		(cl-destructuring-bind (dmin dmax table completionids) rst
+			(let*
 				(
 					(rmin (+ dmin (point)))
 					(rmax (+ dmax (point)))
 					(pmin (+ dmin prev-point-offset))
-					(pmax (+ dmax prev-point-offset))
-					(_ (<= (point-min) rmin))
-					(_ (<= rmax (point-max)))
-					(_ (<= 0 pmin))
-					(_ (<= pmax (length buffer-prev-str)))
-					(_ (string=
-						   (buffer-substring-no-properties rmin rmax)
-						   (substring-no-properties buffer-prev-str pmin pmax))))
-				(list rmin rmax table))))
+					(pmax (+ dmax prev-point-offset)))
+				(when
+					(and
+						(<= (point-min) rmin)
+						(<= rmax (point-max))
+						(<= 0 pmin)
+						(<= pmax (length buffer-prev-str))
+						(string=
+							(buffer-substring-no-properties rmin rmax)
+							(substring-no-properties buffer-prev-str pmin pmax)))
+					(list rmin rmax table :exit-function
+						(lambda (string status)
+							(when-let ((num (and (eq status 'finished) (cl-position string table :test 'string=))))
+								(codeium-request 'AcceptCompletion state 
+									`((codeium/completion_id . ,(nth num completionids)))
+									#'ignore))))))))
 	;; (error
 	;; 	(message "an error occured in codeium-completion-at-point: %s" (error-message-string err))
 	;; 	nil)
@@ -901,18 +1061,43 @@ use `codeium-request' directly instead
 			;; ((codeium-config 'codeium/document/text state) "def fibi(n):")
 			;; ((codeium-config 'codeium/document/cursor_offset state) 12)
 			((codeium-config 'codeium-api-enabled state) (lambda (api) (eq api 'GetCompletions))))
-		(prog1
+		(unwind-protect
 			(codeium-completion-at-point state)
 			(codeium-reset state))))
+
+(defun codeium-test-cancel ()
+	(let ((state (codeium-state-make :name "test")))
+		(unwind-protect
+			(cl-letf*
+				(
+					((codeium-config 'codeium-api-enabled state) (lambda (api) (memq api '(GetCompletions CancelRequest))))
+					((codeium-config 'codeium/document/text state) "def fibi(n):")
+					((codeium-config 'codeium/document/cursor_offset state) 12)
+					(_ (codeium-init state))
+
+					((codeium-config 'codeium/metadata/request_id state) 1)
+					(_ (codeium-on-port-ready state
+						   (lambda ()
+							   (run-with-timer 0.001 nil
+								   (lambda () (codeium-request 'CancelRequest state `((codeium/request_id . 1)) #'ignore)))))))
+				(cdr (codeium-request-synchronously 'GetCompletions state nil)))
+			(codeium-reset state))))
+
+;; (makunbound 'state)
+;; (setq state (codeium-test-cancel))
+;; (codeium-reset state)
+;; (codeium-state-background-process-cancel-fn state)
+
 
 (defun codeium-test-multiround (round callback)
 	(if (= round 0)
 		(funcall callback)
 		(codeium-test)
-		(codeium-run-with-timer 0.005 'codeium-test-multiround (1- round) callback)))
+		(run-with-timer 0.005 nil 'codeium-test-multiround (1- round) callback)))
 
 (defun codeium-stresstest ()
-	"works by advising `url-retrieve' so only run this when no other codeium or other code is using that"
+	"works by advising `url-retrieve'
+so only run this when no other codeium or other code is using that"
 	(let*
 		(
 			(n 50)
@@ -925,20 +1110,18 @@ use `codeium-request' directly instead
 							(
 								(callback-wrapped
 									(lambda ()
-										(cl-letf
-											(
-												(codeium-kill-url-retrieve-buffer nil)
-												((current-buffer) url-retrieve-buffer))
+										(with-current-buffer url-retrieve-buffer
+											(setq codeium-kill-url-retrieve-buffer nil)
 											(apply callback url-retrieve-status cbargs)))))
-							(codeium-run-with-timer 0.005 callback-wrapped)
+							(run-with-timer 0.005 nil callback-wrapped)
 							url-retrieve-buffer)
 						(let
 							((callback-wrapped
 								 (lambda (status)
 									 (setq url-retrieve-buffer (current-buffer))
 									 (setq url-retrieve-status status)
-									 (let ((codeium-kill-url-retrieve-buffer nil))
-										 (apply callback status cbargs)))))
+									 (setq codeium-kill-url-retrieve-buffer nil)
+									 (apply callback status cbargs))))
 							(apply func url callback-wrapped nil args))))))
 		(advice-add 'url-retrieve :around url-retrieve-advise)
 		(codeium-test-multiround n
@@ -946,9 +1129,12 @@ use `codeium-request' directly instead
 				(message "average time: %s" (/ (float-time (time-subtract (current-time) start-time)) n))
 				(advice-remove 'url-retrieve url-retrieve-advise)))))
 
+;; (setq codeium-mode-line-enable t)
 ;; (run-with-timer 0.1 nil (lambda () (message "%s" (codeium-test))))
-;; (dotimes (_ 5) (run-with-timer 0.1 nil 'codeium-stresstest))
+;; (dotimes (_ 10) (run-with-timer 0.1 nil 'codeium-stresstest))
 
-;; (defun 
+
+
 (provide 'codeium)
 ;;; codeium.el ends here
+
