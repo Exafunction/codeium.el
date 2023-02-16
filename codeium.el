@@ -24,8 +24,6 @@
 
 ;;; Commentary:
 
-;; currently you can install codeium binaries from https://github.com/Exafunction/codeium/releases/
-
 ;; use M-x `codeium-install' to install binaries automatically
 ;; add `codeium-completion-at-point' to your `completion-at-point-functions'
 ;; use `codeium-diagnose' to see currently enabled apis and fields
@@ -133,8 +131,8 @@
 
 (codeium-def codeium-download-url
 	(condition-case err;; dont signal error on loading
-		(concat "https://github.com/Exafunction/codeium/releases/download/language-server-"
-			codeium-local-server-version "/" (codeium-get-language-server-string))
+		(concat "https://github.com/Exafunction/codeium/releases/download/language-server-v"
+			codeium-local-server-version "/" (codeium-get-language-server-string) ".gz")
 		(error
 			(defvar codeium-download-url (lambda () (signal (car err) (cdr err))))
 			nil)))
@@ -144,7 +142,7 @@
 
 (codeium-def codeium-api-enabled () t)
 
-(defvar codeium-fields-regexps
+(codeium-def codeium-fields-regexps
 	`(
 		 (GetCompletions .
 			 ,(rx bol "codeium/" (or "metadata" "document" "editor_options") "/" (* anychar) eol))
@@ -281,7 +279,6 @@ If you set `codeium-port', it will be used instead and no process will be create
 		(expand-file-name "codeium" user-emacs-directory)))
 
 (codeium-def codeium-command (_api state)
-	"doc-str here"
 	(unless (codeium-state-manager-directory state)
 		(setf (codeium-state-manager-directory state) (make-temp-file "codeium_" t)))
 	`(,(codeium-get-config 'codeium-command-executable nil nil)
@@ -356,9 +353,31 @@ If you set `codeium-port', it will be used instead and no process will be create
 	(interactive)
 	(setq state (or state codeium-state))
 	(with-output-to-temp-buffer "*codeium-diagnose*"
+
+		(with-current-buffer standard-output
+			(insert "codeium state: ")
+			(insert (propertize (codeium-state-name state) 'face '(:weight ultra-bold)))
+			(terpri)
+			(insert "command: ")
+			(let ((command
+					  (if (codeium-state-proc state)
+						  (process-command (codeium-state-proc state))
+						  (insert "[will be]")
+						  (codeium-get-config 'codeium-command nil state))))
+				(terpri)
+				(insert
+					(propertize (mapconcat #'shell-quote-argument command " ")
+						'face '(:weight ultra-bold)))
+				(terpri)))
+		(terpri)
 		(mapc
 			(lambda (api)
-				(when (codeium-get-config 'codeium-api-enabled api state)
+				(if (not (codeium-get-config 'codeium-api-enabled api state))
+					(progn
+						(with-current-buffer standard-output
+							(insert (propertize (symbol-name api) 'face '(:weight ultra-bold :strike-through t))))
+						(terpri)
+						(terpri))
 					(with-current-buffer standard-output
 						(insert (propertize (symbol-name api) 'face '(:weight ultra-bold))))
 					(terpri)
@@ -402,8 +421,7 @@ If you set `codeium-port', it will be used instead and no process will be create
 				(buffer-disable-undo))
 			buf)))
 
-(codeium-def codeium-mode-line-enable (api)
-	(not (memq api '(CancelRequest Heartbeat AcceptCompletion))))
+(codeium-def codeium-mode-line-enable nil)
 (codeium-def codeium-mode-line-keep-time 3)
 
 
@@ -695,7 +713,7 @@ that can add to that line."
 (defun codeium-request (api state vals-alist callback)
 	"make an async request to api, calls callback when done.
 callback is called with a single argument, the return of
-(json-parse-buffer :object-type 'alist)
+(json-parse-buffer :object-type \\='alist)
 
 returns the body as returned by codeium-make-body-for-api
 If `codeium-api-enabled' returns nil, does nothing.
