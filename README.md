@@ -17,8 +17,7 @@
 
 _Free, ultrafast, extensible AI code completion tool for Emacs_
 
-Codeium autocompletes your code with AI in all major IDEs.
-Check out our [playground](https://www.codeium.com/playground) if you want to quickly try out Codeium online.
+Codeium autocompletes your code with AI in all major IDEs. We [launched](https://www.codeium.com/blog/codeium-copilot-alternative-in-emacs) this implementation of the Codeium plugin for Emacs to bring this modern coding superpower to more developers. Check out our [playground](https://www.codeium.com/playground) if you want to quickly try out Codeium online.
 
 codeium.el provides a `completion-at-point-functions` backend. It is designed to be use with a front-end, such as [company-mode](https://company-mode.github.io/), [corfu](https://github.com/minad/corfu), or the built-in `completion-at-point`.
 
