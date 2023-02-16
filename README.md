@@ -21,6 +21,12 @@ Codeium autocompletes your code with AI in all major IDEs. We launched this impl
 
 Contributions are welcome! Feel free to submit pull requests and issues related to the package.
 
+<br />
+
+![Emacs demo v4](https://user-images.githubusercontent.com/7545794/219252564-7ad530ee-ac72-4e29-9bec-c2bafb42efa8.gif)
+
+<br />
+
 ## 🚀 Getting started
 
 1. Install [Emacs](https://www.gnu.org/software/emacs/)
