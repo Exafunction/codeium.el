@@ -80,7 +80,7 @@ Here is an example configuration:
     ;; (add-hook 'emacs-startup-hook
     ;;  (lambda () (run-with-timer 0.1 nil #'codeium-init)))
 
-    :defer t
+    ;; :defer t ;; lazy loading, if you want
     :config
     (setq use-dialog-box nil) ;; do not use popup boxes
 
