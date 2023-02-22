@@ -41,9 +41,11 @@
 
 (defvar codeium-latest-local-server-version "1.1.38")
 
-(require 'url-parse) ; for url-parse-make-urlobj
-;; removing this gives comp warnings, not sure why since its defined in url-http?
+;; (require 'url-parse)
+(autoload 'url-parse-make-urlobj "url-parse")
+
 (eval-when-compile
+	(require 'url-vars)
 	(defvar url-http-end-of-headers)
 	(defvar url-http-response-status))
 
@@ -298,8 +300,8 @@
 		 (elixir-ts-mode . 58)
 		 (heex-ts-mode . 58)
 		 (fsharp-mode . 59)
-		 (lisp-data-mode . 60)
-		 ))
+		 (lisp-data-mode . 60)))
+
 (codeium-def codeium/document/language ()
 	(let ((mode major-mode))
 		(while (not (alist-get mode codeium-language-alist))
@@ -317,37 +319,37 @@
 
 (codeium-def codeium/firebase_id_token (_api state) (codeium-state-last-auth-token state))
 
-(eval-and-compile
-	(cl-defstruct
-		(codeium-state
-			(:constructor codeium-state-make)
-			(:copier nil))
-		(name "")
-		(config nil
-			:documentation "state-wise config, access it with `codeium-config'")
-		(proc nil
-			:documentation "created on a `codeium-init', not created if one specifies `codeium-port'")
-		(manager-directory nil
-			:documentation "directory which codeium local language server places temp files; created by `codeium-default-command'")
-		(port nil
-			:documentation "port used by codeium local language server; by default a random port is used.
+;;;###autoload
+(cl-defstruct
+	(codeium-state
+		(:constructor codeium-state-make)
+		(:copier nil))
+	(name "")
+	(config nil
+		:documentation "state-wise config, access it with `codeium-config'")
+	(proc nil
+		:documentation "created on a `codeium-init', not created if one specifies `codeium-port'")
+	(manager-directory nil
+		:documentation "directory which codeium local language server places temp files; created by `codeium-default-command'")
+	(port nil
+		:documentation "port used by codeium local language server; by default a random port is used.
 If you set `codeium-port', it will be used instead and no process will be created")
-		(port-ready-hook nil
-			:documentation "hook called when the server is ready; use `codeium-on-port-ready' to add to it")
+	(port-ready-hook nil
+		:documentation "hook called when the server is ready; use `codeium-on-port-ready' to add to it")
 
-		(alive-tracker nil
-			:documentation "a symbol, set to nil on a codeium-reset which ensures that requests on timers made before the request are dropped")
+	(alive-tracker nil
+		:documentation "a symbol, set to nil on a codeium-reset which ensures that requests on timers made before the request are dropped")
 
-		last-auth-token
-		last-api-key
+	last-auth-token
+	last-api-key
 
-		(last-request-id 0)
+	(last-request-id 0)
 
-		;; hash tables for codeium-request-synchronously
-		;; these has distinct elements
-		(results-table (make-hash-table :test 'eql :weakness nil)) ; results that are ready
-		(pending-table (make-hash-table :test 'eql :weakness nil)) ; requestid that we are waiting for
-		))
+	;; hash tables for codeium-request-synchronously
+	;; these has distinct elements
+	(results-table (make-hash-table :test 'eql :weakness nil)) ; results that are ready
+	(pending-table (make-hash-table :test 'eql :weakness nil)) ; requestid that we are waiting for
+	)
 
 (codeium-def codeium-command-executable
 	(expand-file-name
@@ -366,6 +368,7 @@ If you set `codeium-port', it will be used instead and no process will be create
 
 (defvar codeium-state (codeium-state-make :name "default"))
 
+;;;###autoload
 (defun codeium-config (field &optional state)
 	(setq state (or state codeium-state))
 	(if (eq (alist-get field (codeium-state-config state) 'noexist) 'noexist)
@@ -374,6 +377,8 @@ If you set `codeium-port', it will be used instead and no process will be create
 (defun codeium--set-config (val field &optional state)
 	(setq state (or state codeium-state))
 	(setf (alist-get field (codeium-state-config state)) val))
+
+;;;###autoload
 (gv-define-setter codeium-config (val field &optional state)
 	`(codeium--set-config ,val ,field ,state))
 
@@ -832,14 +837,14 @@ If `codeium-api-enabled' returns nil, does nothing.
 	(unless (codeium-state-alive-tracker state)
 		(error "codeium-state is not alive! %s" state))
 	(cond
-		((or
-			 (and
-				 (not (codeium-get-config 'codeium-port nil state))
-				 (not (codeium-get-config 'codeium-directory nil state))
-				 (not (codeium-state-proc state)))
-			 ;; we created the process but that is now dead for some reason
-			 (and (codeium-state-proc state)
-				 (not (process-live-p (codeium-state-proc state)))))
+		(;; we created the process but that is now dead for some reason
+			(and (codeium-state-proc state)
+				(not (process-live-p (codeium-state-proc state))))
+			(codeium-reset state))
+		((and
+			 (not (codeium-get-config 'codeium-port nil state))
+			 (not (codeium-get-config 'codeium-directory nil state))
+			 (not (codeium-state-proc state)))
 			(setf (codeium-state-port state) nil)
 			(when-let ((dir (codeium-state-manager-directory state)))
 				(delete-directory dir t)
@@ -1108,6 +1113,10 @@ returns. Prefer using `codeium-request' directly instead.
 ;;;###autoload
 (defun codeium-completion-at-point (&optional state)
 	(setq state (or state codeium-state))
+	(when
+		(and (codeium-state-proc state)
+			(not (process-live-p (codeium-state-proc state))))
+		(codeium-reset state))
 	(unless (codeium-state-alive-tracker state)
 		(codeium-init state))
 	;; (condition-case err
