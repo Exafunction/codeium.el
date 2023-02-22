@@ -837,14 +837,14 @@ If `codeium-api-enabled' returns nil, does nothing.
 	(unless (codeium-state-alive-tracker state)
 		(error "codeium-state is not alive! %s" state))
 	(cond
-		((or
-			 (and
-				 (not (codeium-get-config 'codeium-port nil state))
-				 (not (codeium-get-config 'codeium-directory nil state))
-				 (not (codeium-state-proc state)))
-			 ;; we created the process but that is now dead for some reason
-			 (and (codeium-state-proc state)
-				 (not (process-live-p (codeium-state-proc state)))))
+		(;; we created the process but that is now dead for some reason
+			(and (codeium-state-proc state)
+				(not (process-live-p (codeium-state-proc state))))
+			(codeium-reset state))
+		((and
+			 (not (codeium-get-config 'codeium-port nil state))
+			 (not (codeium-get-config 'codeium-directory nil state))
+			 (not (codeium-state-proc state)))
 			(setf (codeium-state-port state) nil)
 			(when-let ((dir (codeium-state-manager-directory state)))
 				(delete-directory dir t)
@@ -1113,6 +1113,10 @@ returns. Prefer using `codeium-request' directly instead.
 ;;;###autoload
 (defun codeium-completion-at-point (&optional state)
 	(setq state (or state codeium-state))
+	(when
+		(and (codeium-state-proc state)
+			(not (process-live-p (codeium-state-proc state))))
+		(codeium-reset state))
 	(unless (codeium-state-alive-tracker state)
 		(codeium-init state))
 	;; (condition-case err
