@@ -58,7 +58,7 @@ Here is an example configuration:
     ;; if you use straight
     ;; :straight '(:type git :host github :repo "Exafunction/codeium.el")
     ;; otherwise, make sure that the codeium.el file is on load-path
-    
+
     :init
     ;; use globally
     (add-to-list 'completion-at-point-functions #'codeium-completion-at-point)
@@ -127,7 +127,7 @@ Here is an example configuration for company-mode.
         company-idle-delay 0.05
         company-require-match nil
         company-minimum-prefix-length 0
-        
+
         ;; get only preview
         company-frontends '(company-preview-frontend)
         ;; also get a drop down
