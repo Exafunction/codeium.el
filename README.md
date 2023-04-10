@@ -165,6 +165,14 @@ We would love to see a PR or your own package that uses those!
 (straight-use-package '(codeium :type git :host github :repo "Exafunction/codeium.el"))
 ```
 
+### 💀 Doom Emacs
+In `packages.el` add the following:
+```elisp
+(package! codeium :recipe (:host github :repo "Exafunction/codeium.el"))
+```
+Add the example configuration to your `config.el` file.
+
+
 ### 💪 Manual
 
 Run the following.
@@ -178,12 +186,5 @@ Add the following to your `~/.emacs.d/init.el` file.
 ```elisp
 (add-to-list 'load-path "~/.emacs.d/codeium.el")
 ```
-
-### Doom Emacs
-In `packages.el` add the follwing:
-```elisp
-(package! codeium :recipe (:host github :repo "Exafunction/codeium.el"))
-```
-Add the example configuration to your `config.el` file.
 
 *Do you have a working installation for another Emacs environment (Spacemacs)? Submit a PR so we can share it with others!*
