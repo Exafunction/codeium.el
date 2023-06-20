@@ -39,7 +39,7 @@
 
 ;;; Code:
 
-(defvar codeium-latest-local-server-version "1.1.60")
+(defvar codeium-latest-local-server-version "1.2.37")
 
 ;; (require 'url-parse)
 (autoload 'url-parse-make-urlobj "url-parse")
@@ -358,13 +358,23 @@ If you set `codeium-port', it will be used instead and no process will be create
 			(_ "codeium_language_server"))
 		(expand-file-name "codeium" user-emacs-directory)))
 
-(codeium-def codeium-command (_api state)
+(codeium-def codeium-enterprise nil)
+(codeium-def codeium-portal-url "https://www.codeium.com")
+(codeium-def codeium-api-url "https://server.codeium.com")
+(codeium-def codeium-register-user-url ()
+			 (if codeium-enterprise
+				 (concat codeium-api-url "/exa.api_server_pb.ApiServerService/RegisterUser")
+			   "https://api.codeium.com/register_user/"))
+
+(codeium-def codeium-command (api state)
 	(unless (codeium-state-manager-directory state)
 		(setf (codeium-state-manager-directory state) (make-temp-file "codeium_" t)))
-	`(,(codeium-get-config 'codeium-command-executable nil nil)
-		 "--api_server_host" "server.codeium.com"
-		 "--api_server_port" "443"
-		 "--manager_dir" ,(codeium-state-manager-directory state)))
+	`(,(codeium-get-config 'codeium-command-executable api state)
+		 "--api_server_url" ,(codeium-get-config 'codeium-api-url api state)
+		 "--manager_dir" ,(codeium-state-manager-directory state)
+         "--register_user_url" ,(codeium-get-config 'codeium-register-user-url api state)
+         ,@(if (codeium-get-config 'codeium-enterprise api state) '("--enterprise_mode"))
+         "--portal_url" ,(codeium-get-config 'codeium-portal-url api state)))
 
 (defvar codeium-state (codeium-state-make :name "default"))
 
@@ -546,8 +556,7 @@ If you set `codeium-port', it will be used instead and no process will be create
 						 ("redirect_uri" ,(url-recreate-url (codeium-get-config 'codeium-url 'auth-redirect state)))
 						 ("redirect_parameters_type" "query"))))
 			(url
-				(url-recreate-url
-					(url-parse-make-urlobj "https" nil nil "www.codeium.com" nil (concat "/profile?" query-params) nil nil t))))
+             (concat (codeium-get-config 'codeium-portal-url 'auth-redirect state) "/profile?" query-params)))
 		(setq codeium-last-auth-url url)))
 (defun codeium-kill-last-auth-url ()
 	(interactive)
