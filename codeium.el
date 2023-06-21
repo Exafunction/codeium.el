@@ -39,7 +39,7 @@
 
 ;;; Code:
 
-(defvar codeium-latest-local-server-version "1.2.37")
+(defvar codeium-latest-local-server-version "1.2.40")
 
 ;; (require 'url-parse)
 (autoload 'url-parse-make-urlobj "url-parse")
@@ -281,6 +281,8 @@
 		 (pkgbuild-mode . 40)
 		 (sql-mode . 41)
 		 (swift-mode . 43)
+		 (tsx-mode . 44)
+		 (tsx-ts-mode . 44)
 		 (ts-mode . 45)
 		 (typescript-mode . 45)
 		 (typescript-ts-mode . 45)
