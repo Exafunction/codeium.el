@@ -39,7 +39,7 @@
 
 ;;; Code:
 
-(defvar codeium-latest-local-server-version "1.2.78")
+(defvar codeium-latest-local-server-version "1.2.84")
 
 ;; (require 'url-parse)
 (autoload 'url-parse-make-urlobj "url-parse")
@@ -365,7 +365,7 @@ If you set `codeium-port', it will be used instead and no process will be create
 (codeium-def codeium-api-url "https://server.codeium.com")
 (codeium-def codeium-register-user-url ()
 			 (if codeium-enterprise
-				 (concat codeium-api-url "/exa.api_server_pb.ApiServerService/RegisterUser")
+				 (concat codeium-api-url "/exa.seat_management_pb.SeatManagementService/RegisterUser")
 			   "https://api.codeium.com/register_user/"))
 
 (codeium-def codeium-command (api state)
