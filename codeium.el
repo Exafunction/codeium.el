@@ -39,7 +39,7 @@
 
 ;;; Code:
 
-(defvar codeium-latest-local-server-version "1.2.86")
+(defvar codeium-latest-local-server-version "1.2.88")
 
 ;; (require 'url-parse)
 (autoload 'url-parse-make-urlobj "url-parse")
@@ -101,7 +101,7 @@
 				 :group 'codeium)
 			 ,@funcdefform)))
 
-(codeium-def codeium-delay 0.001)
+(codeium-def codeium-delay 0.100)
 
 (codeium-def codeium-directory (_api state) (codeium-state-manager-directory state))
 (codeium-def codeium-port (_api state) (codeium-state-port state))
