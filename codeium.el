@@ -39,7 +39,7 @@
 
 ;;; Code:
 
-(defvar codeium-latest-local-server-version "1.2.90")
+(defvar codeium-latest-local-server-version "1.2.96")
 
 ;; (require 'url-parse)
 (autoload 'url-parse-make-urlobj "url-parse")
