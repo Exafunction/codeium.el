@@ -39,7 +39,7 @@
 
 ;;; Code:
 
-(defvar codeium-latest-local-server-version "1.4.15")
+(defvar codeium-latest-local-server-version "1.6.5")
 
 ;; (require 'url-parse)
 (autoload 'url-parse-make-urlobj "url-parse")
@@ -162,7 +162,7 @@
 	(let ((endpoint
 			  (or (alist-get api codeium-special-url-alist)
 				  (concat "/exa.language_server_pb.LanguageServerService/" (symbol-name api)))))
-		(url-parse-make-urlobj "http" nil nil "localhost" (codeium-state-port state)
+		(url-parse-make-urlobj "http" nil nil "127.0.0.1" (codeium-state-port state)
 			endpoint nil nil t)))
 
 
