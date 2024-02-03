@@ -1168,7 +1168,7 @@ returns. Prefer using `codeium-request' directly instead.
 					      :annotation-function
 					      (lambda (_)
 						  (propertize
-						   " Codium"
+						   " Codeium"
 						   'face font-lock-comment-face))
 					      :company-kind
 					      (lambda (_) 'magic)
