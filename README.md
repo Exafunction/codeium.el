@@ -34,7 +34,7 @@ Contributions are welcome! Feel free to submit pull requests and issues related 
 
 ## 🚀 Getting started
 
-1. Install [Emacs](https://www.gnu.org/software/emacs/)
+1. Install [Emacs](https://www.gnu.org/software/emacs/), ensuring the version of Emacs you are running is compiled with [libxml2](https://www.gnu.org/software/emacs/manual/html_node/elisp/Parsing-HTML_002fXML.html). You can check this by using the `(libxml-available-p)` function within Emacs Lisp. This function returns t (true) if libxml2 is available in your current Emacs session.
 
 2. Install a text-completion frontend of your choice. (We recommend [company-mode](https://company-mode.github.io/) or [corfu](https://github.com/minad/corfu)).
 
