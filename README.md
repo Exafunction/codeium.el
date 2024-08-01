@@ -158,6 +158,14 @@ the full response of a `GetCompletions` request:
 Note that, among other things, you get probabilities for each token!
 We would love to see a PR or your own package that uses those!
 
+### 🔓 Authentication
+If you want to authenticate automatically, add your codeium api key to one of `auth-sources`. For example
+
+~/.authinfo.gpg:
+``` text
+machine codeium.com login apikey secret <insert_api_key_here>
+```
+
 ## 💾 Installation Options
 
 ### ➡️ straight.el
