@@ -34,7 +34,7 @@ Contributions are welcome! Feel free to submit pull requests and issues related 
 
 ## 🚀 Getting started
 
-1. Install [Emacs](https://www.gnu.org/software/emacs/), ensuring the version of Emacs you are running is compiled with [libxml2](https://www.gnu.org/software/emacs/manual/html_node/elisp/Parsing-HTML_002fXML.html). You can check this by using the `(libxml-available-p)` function within Emacs Lisp. This function returns t (true) if libxml2 is available in your current Emacs session.
+1. Install [Emacs](https://www.gnu.org/software/emacs/)
 
 2. Install a text-completion frontend of your choice. (We recommend [company-mode](https://company-mode.github.io/) or [corfu](https://github.com/minad/corfu)).
 
@@ -157,14 +157,6 @@ the full response of a `GetCompletions` request:
 ```
 Note that, among other things, you get probabilities for each token!
 We would love to see a PR or your own package that uses those!
-
-### 🔓 Authentication
-If you want to authenticate automatically, add your codeium api key to one of `auth-sources`. For example
-
-~/.authinfo.gpg:
-``` text
-machine codeium.com login apikey secret <insert_api_key_here>
-```
 
 ## 💾 Installation Options
 
