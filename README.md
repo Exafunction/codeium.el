@@ -74,7 +74,7 @@ Here is an example configuration:
     ;; (add-hook 'python-mode-hook
     ;;     (lambda ()
     ;;         (setq-local completion-at-point-functions
-    ;;             (list (cape-super-capf #'codeium-completion-at-point #'lsp-completion-at-point)))))
+    ;;             (list (cape-capf-super #'codeium-completion-at-point #'lsp-completion-at-point)))))
     ;; an async company-backend is coming soon!
 
     ;; codeium-completion-at-point is autoloaded, but you can
