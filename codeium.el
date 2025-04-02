@@ -128,7 +128,7 @@
             nil)))
 
 (defconst codeium-apis
-    '(GetCompletions Heartbeat CancelRequest GetAuthToken RegisterUser auth-redirect AcceptCompletion))
+    '(GetCompletions GetProcesses Heartbeat CancelRequest GetAuthToken RegisterUser auth-redirect AcceptCompletion))
 
 (codeium-def codeium-api-enabled () t)
 
@@ -136,6 +136,8 @@
     `(
          (GetCompletions .
              ,(rx bol "codeium/" (or "metadata" "document" "editor_options") "/" (* anychar) eol))
+         (GetProcesses .
+             ,(rx bol "codeium/metadata/" (* anychar) eol))
          (Heartbeat .
              ,(rx bol "codeium/metadata/" (* anychar) eol))
          (CancelRequest .
@@ -351,6 +353,9 @@ If you set `codeium-port', it will be used instead and no process will be create
     last-auth-token
     last-api-key
 
+    chat-client-port
+    chat-webserver-port
+
     (last-request-id 0)
 
     ;; hash tables for codeium-request-synchronously
@@ -366,6 +371,7 @@ If you set `codeium-port', it will be used instead and no process will be create
             (_ "codeium_language_server"))
         (expand-file-name "codeium" user-emacs-directory)))
 
+(codeium-def codeium-chat t)
 (codeium-def codeium-enterprise nil)
 (codeium-def codeium-portal-url "https://www.codeium.com")
 (codeium-def codeium-api-url "https://server.codeium.com")
@@ -382,6 +388,7 @@ If you set `codeium-port', it will be used instead and no process will be create
          "--manager_dir" ,(codeium-state-manager-directory state)
          "--register_user_url" ,(codeium-get-config 'codeium-register-user-url api state)
          ,@(if (codeium-get-config 'codeium-enterprise api state) '("--enterprise_mode"))
+         ,@(if (codeium-get-config 'codeium-chat api state) '("--enable_chat_web_server" "--enable_chat_client"))
          "--portal_url" ,(codeium-get-config 'codeium-portal-url api state)))
 
 (defvar codeium-state (codeium-state-make :name "default"))
@@ -918,11 +925,48 @@ If `codeium-api-enabled' returns nil, does nothing.
                             (setf (codeium-state-last-api-key state) key))
                         (error "cannot get api_key from res"))
                     (codeium-background-process-schedule state))))
-
+        ((and
+             (codeium-get-config 'codeium-chat nil state)
+             (not (codeium-state-chat-client-port state))
+             (not (codeium-state-chat-webserver-port state)))
+            (codeium-request 'GetProcesses state nil
+                (lambda (res)
+                    (if (listp res)
+                        (setf (codeium-state-chat-client-port state) (alist-get 'chatClientPort res)
+                              (codeium-state-chat-webserver-port state) (alist-get 'chatWebServerPort res))
+                        (error "cannot get chat ports from res")))))
         (t
             (codeium-request 'Heartbeat state nil
                 (lambda (_res)
                     (codeium-run-with-timer state 5 #'codeium-background-process-start state))))))
+
+(defun codeium-chat-open (&optional state)
+    (interactive)
+    (setq state (or state codeium-state))
+    (setq codeium-chat-url
+          (concat
+           "http://127.0.0.1:"
+           (number-to-string (or (codeium-state-chat-client-port state)
+                                 (error "chat client port is not set yet, please wait")))
+           "?api_key=" codeium/metadata/api_key
+           "&has_enterprise_extension=" (if codeium-enterprise "true" "false")
+           "&web_server_url=ws://127.0.0.1:"
+           (number-to-string (or (codeium-state-chat-webserver-port state)
+                                 (error "chat client port is not set yet, please wait")))
+           "&ide_name=" codeium/metadata/ide_name
+           "&ide_version=" codeium/metadata/ide_version
+           "&app_name=codeium.el"
+           "&extension_name=codeium.el"
+           "&extension_version=" codeium/metadata/extension_version
+           "&ide_telemetry_enabled=true"
+           "&locale=en_US"))
+    (start-process "codeium chat" nil
+                  (pcase system-type
+                      ('windows-nt "start")
+                      ('gnu/linux "xdg-open")
+                      ('darwin "open")
+                      (_ (error "unable to automatically determine your system, or your system is not supported yet. Please file an issue on github.")))
+                  codeium-chat-url))
 
 (defun codeium-reset (&optional state)
     (interactive)
@@ -938,6 +982,8 @@ If `codeium-api-enabled' returns nil, does nothing.
     (setf (codeium-state-port-ready-hook state) nil)
     (setf (codeium-state-last-api-key state) nil)
     (setf (codeium-state-last-auth-token state) nil)
+    (setf (codeium-state-chat-client-port state) nil)
+    (setf (codeium-state-chat-webserver-port state) nil)
     (setf (codeium-state-results-table state) (make-hash-table :test 'eql :weakness nil))
     (setf (codeium-state-pending-table state) (make-hash-table :test 'eql :weakness nil)))
 
