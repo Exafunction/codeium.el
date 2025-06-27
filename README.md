@@ -206,5 +206,7 @@ If you are using the plugin with the Windsurf Self-Hosted Enterprise deployment,
 in your vim config file so that Windsurf knows where to send completion requests. Add the following line to your `~/.emacs.d/init.el`:
 
 ```
-(setq-default codeium-enterprise t)\n(setq-default codeium-portal-url\n "<PORTAL URL>")\n(setq-default codeium-api-url\n "<PORTAL URL>/_route/api_server")
-```.
+(setq-default codeium-enterprise t)
+(setq-default codeium-portal-url "<PORTAL URL>")
+(setq-default codeium-api-url "<PORTAL URL>/_route/api_server")
+```
