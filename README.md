@@ -199,3 +199,12 @@ Add the following to your `~/.emacs.d/init.el` file.
 ```
 
 *Do you have a working installation for another Emacs environment (Spacemacs)? Submit a PR so we can share it with others!*
+
+## Self-Hosted Enterprise
+
+If you are using the plugin with the Windsurf Self-Hosted Enterprise deployment, you'll need to set your Portal and API URLs
+in your vim config file so that Windsurf knows where to send completion requests. Add the following line to your `~/.emacs.d/init.el`:
+
+```
+(setq-default codeium-enterprise t)\n(setq-default codeium-portal-url\n "<PORTAL URL>")\n(setq-default codeium-api-url\n "<PORTAL URL>/_route/api_server")
+```.
